@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package gio.measurement.v1;
+
+import "gio/common/v1/network.proto";
+
+// Target records the destination requested for a measurement.
+//
+// At least one of hostname, ip_address, or url must be present. Multiple fields
+// may be present when they describe different representations of the same target.
+message Target {
+  // Hostname as supplied for the measurement, without a trailing root dot.
+  optional string hostname = 1;
+
+  // Selected destination address, when known before execution.
+  optional gio.common.v1.IpAddress ip_address = 2;
+
+  // Destination transport port in the inclusive range 1 through 65535.
+  optional uint32 port = 3;
+
+  // Absolute URL as supplied for an application-layer measurement.
+  optional string url = 4;
+}
