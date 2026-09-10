@@ -55,6 +55,11 @@ buf breaking --against '.git#branch=main'
 
 The repository currently uses Buf's `FILE` breaking policy so that compatibility checks protect both protobuf wire compatibility and the generated-code API surface implied by file structure.
 
+Measurement v1 is the repository's first schema baseline. The baseline check is
+skipped only when the comparison target contains no `.proto` files; after the
+initial schema reaches `main`, every subsequent schema change is compared with
+that history.
+
 ## Semantic compatibility
 
 Automated wire checks cannot detect every semantic break. Reviewers must reject changes that preserve the wire representation but materially alter the meaning, units, lifecycle, or interpretation of an existing field.

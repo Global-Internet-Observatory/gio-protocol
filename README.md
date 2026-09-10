@@ -6,11 +6,11 @@ GIO is a distributed Internet measurement system. Measurement nodes run observat
 
 This repository is that contract.
 
-The Protocol Buffers definitions under `proto/` are the canonical source of truth for data exchanged between GIO components. In particular, this repository defines measurement records and the shared protocol types required by the GIO measurement pipeline.
+The Protocol Buffers definitions under `proto/` are the canonical source of truth for data exchanged between GIO components. In particular, this repository defines Measurement v1 records and the shared protocol types required by the GIO measurement pipeline.
 
 ## What belongs here
 
-`gio-protocol` is intentionally a **schema-only repository**.
+`gio-protocol` is intentionally a **protocol-only repository**.
 
 It is responsible for:
 
@@ -18,6 +18,7 @@ It is responsible for:
 - assigning stable field numbers, enum values, package names, and message semantics;
 - documenting protocol-level semantics shared by independent implementations;
 - validating schema formatting, lint rules, compilation, and backward compatibility with Buf;
+- maintaining repository-internal protocol conformance fixtures and tests;
 - providing Git commits and tags that consumers can pin as protocol versions.
 
 It is not responsible for:
@@ -29,7 +30,7 @@ It is not responsible for:
 - SDK packaging or publication;
 - application-specific convenience models that do not cross a protocol boundary.
 
-For now, consumer repositories generate their own language bindings from a pinned revision of this repository. Generated code must not be committed here.
+For now, consumer repositories pin a Git revision and generate their own language bindings. They must not depend on harness code or harness-generated artifacts. Generated code must not be committed here.
 
 ## Role in GIO
 
@@ -49,6 +50,23 @@ The protocol sits below the runtime components of GIO:
 
 A protocol change must therefore be treated differently from an ordinary implementation change. Once a field or message is used by deployed components or persisted measurement data, its wire identity and semantics become part of the long-lived GIO contract.
 
+## Measurement v1
+
+Measurement v1 is the first concrete GIO wire contract. It uses an extensible
+`gio.measurement.v1.Measurement` envelope containing measurement identity,
+timing, probe and network context, target information, terminal execution
+status, structured errors, and one typed result.
+
+The initial typed results cover DNS queries, HTTP transactions, TCP connection
+attempts, and TLS handshakes. A separate `kind` remains present even when a
+failed measurement has no result, so consumers can always interpret what was
+attempted. New result variants can be added compatibly to the envelope's
+`oneof`; existing field numbers and meanings remain permanent.
+
+Types shared outside the measurement domain, such as IP endpoints and probe or
+network context, live in `gio.common.v1`. Measurement targets and result payloads
+remain in `gio.measurement.v1`. The schemas define no RPC services.
+
 ## Design principles
 
 Protocol development follows a few core principles:
@@ -66,6 +84,7 @@ The enforceable compatibility policy is documented in [COMPATIBILITY.md](COMPATI
 ```text
 .
 ├── proto/                  # Canonical .proto sources
+├── harness/                # Internal conformance tests and fixtures
 ├── .github/workflows/      # Protocol CI
 ├── buf.yaml                # Buf module, lint, and breaking rules
 ├── Makefile                # Stable local development entrypoints
@@ -84,9 +103,9 @@ Package versions are protocol API major versions. They are not the same thing as
 
 ## Development prerequisites
 
-Install [Buf](https://buf.build/docs/installation/) and GNU Make or a compatible `make` implementation.
+Install [Buf](https://buf.build/docs/installation/), Python 3, and GNU Make or a compatible `make` implementation. Python is used only by the repository-internal conformance harness and requires no third-party packages.
 
-No Python, Rust, `protoc`, SDK toolchain, or Buf Schema Registry account is required to develop the schemas in this repository.
+No `protoc`, Rust, Node.js, SDK toolchain, Docker runtime, or Buf Schema Registry account is required. The harness uses Buf's dynamic message conversion and does not generate or commit bindings.
 
 ## Development workflow
 
@@ -140,10 +159,20 @@ make format-check  # Verify formatting without modifying files
 make lint          # Run Buf lint rules
 make build         # Compile and validate the schema graph
 make breaking      # Compare against main when a schema baseline exists
+make test          # Run wire and semantic conformance fixtures
 make check         # Run the complete validation suite
 ```
 
-During the initial repository bootstrap, when no `.proto` files exist yet, schema checks intentionally succeed without running Buf against an empty module. The first schema can therefore establish the compatibility baseline. After that schema reaches `main`, breaking-change checks become part of every subsequent protocol PR.
+`make check` is the authoritative local equivalent of CI. Measurement v1
+establishes the first compatibility baseline; after it reaches `main`, breaking
+checks protect every subsequent schema change. A checkout whose target branch
+still has no `.proto` files reports that the baseline check was skipped.
+
+The harness validates readable protobuf-JSON fixtures by encoding and decoding
+them through the real schema, then applies the small set of semantic invariants
+that Buf cannot express, including timestamp ordering and status/error/result
+relationships. See [harness/README.md](harness/README.md) for its deliberately
+limited scope. Harness code is repository-internal and is not a supported API.
 
 ### 5. Open a focused pull request
 
@@ -205,6 +234,6 @@ Within an existing protocol major version, backward-compatible evolution is requ
 
 ## Current project stage
 
-`gio-protocol` is currently establishing the first version of the GIO measurement protocol. The repository deliberately does not publish SDKs or generated language packages yet. That can be added later if repeated consumer-side code generation becomes sufficiently costly to justify a separate SDK distribution layer.
+`gio-protocol` contains the initial Measurement v1 contract. The repository deliberately does not publish SDKs or generated language packages yet. Those may be added later if repeated consumer-side code generation becomes sufficiently costly to justify a separate SDK distribution layer, but no such packages exist today.
 
 Until then, keep this repository focused on one thing: a precise, durable, language-independent contract for the Global Internet Observatory.
