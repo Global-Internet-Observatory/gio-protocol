@@ -34,7 +34,7 @@ Do not:
 
 ## Removing fields
 
-When a field is removed, reserve both its number and name whenever possible:
+When a field is removed, reserve both its number and name:
 
 ```proto
 message Example {
@@ -63,3 +63,20 @@ that history.
 ## Semantic compatibility
 
 Automated wire checks cannot detect every semantic break. Reviewers must reject changes that preserve the wire representation but materially alter the meaning, units, lifecycle, or interpretation of an existing field.
+
+Adding a field must define what its absence means for older records. Never
+reinterpret an absent/default value as proof that an observation was made.
+The same discipline applies to enum additions and new `oneof` alternatives:
+define the new kind/result relationship and how an old reader can decline
+interpretation without claiming the protobuf payload is malformed.
+
+Proto3 enums are open on the wire. Unrecognized numbers are not the zero
+UNSPECIFIED sentinel and must not be coerced to a known value. Unknown kinds,
+statuses, and result variants may require newer semantic validation.
+
+Unknown-field preservation is runtime- and pipeline-dependent. Forward opaque
+protobuf bytes when transparent forwarding requires preserving all data.
+Conversion through JSON or rebuilding from known fields can discard unknown
+fields. The harness demonstrates Buf's behavior, not a guarantee for every
+consumer implementation. See the [Measurement v1 contract](proto/gio/measurement/v1/README.md)
+for the cross-message rules and the recorded pre-release clarifications.

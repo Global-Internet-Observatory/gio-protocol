@@ -32,6 +32,12 @@ a consumer API. Keep its fixtures small and reviewable. Add semantic checks only
 for invariants every conforming implementation must enforce; runtime policy and
 business validation belong in runtime repositories.
 
+Read `proto/gio/measurement/v1/README.md` for the cross-message contract. Each
+invalid JSON fixture must decode successfully and name its intended failing
+rule in `harness/fixtures/expectations.json`. A decoding failure must not pass as
+an expected semantic failure. Add a focused binary test when changing presence,
+enum evolution, or `oneof` behavior.
+
 The harness may use temporary generated artifacts, but they must remain outside
 `proto/`, must not be committed or published, and must never become a dependency
 of GIO components. See `harness/README.md` for fixture conventions.
