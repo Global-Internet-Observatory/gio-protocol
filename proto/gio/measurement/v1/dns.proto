@@ -19,30 +19,46 @@ message DnsAnswer {
   // Owner name in DNS presentation format.
   string name = 1;
 
-  // IANA DNS resource record TYPE numeric value.
+  // IANA DNS resource record TYPE numeric value, 1 through 65535.
   uint32 type = 2;
 
+  // TTL received on the wire, in seconds. Zero is valid, not unknown.
   uint32 ttl_seconds = 3;
 
-  // Resource data in the conventional presentation format for its TYPE.
+  // RDATA in the TYPE's DNS presentation format (RFC 3597 for unknown TYPEs).
+  // Text is not a canonical wire encoding; compare using TYPE-specific semantics.
   string data = 4;
 }
 
-// DnsResult is the result of one completed DNS query.
+// DnsResult is one completed Internet-class (IN) DNS query/response exchange.
+// A timeout before a complete response has no DnsResult. NXDOMAIN, SERVFAIL,
+// or a response with TC set can still be a successfully observed exchange.
 message DnsResult {
   // Query name in DNS presentation format, without a trailing root dot.
   string query_name = 1;
 
-  // IANA DNS QTYPE numeric value.
+  // IANA DNS QTYPE numeric value, 1 through 65535.
   uint32 query_type = 2;
 
-  // IANA DNS response code numeric value.
+  // DNS RCODE, including EDNS extended bits when present (0 through 4095).
+  // Required for a usable result. Present zero means NOERROR; absence is unknown.
   optional uint32 response_code = 3;
 
+  // Complete answer section in received order, including CNAME records and
+  // duplicates. An empty section does not by itself establish a negative answer.
   repeated DnsAnswer answers = 4;
+
+  // Resolver endpoint actually contacted for this exchange, if observable.
+  // This is not the target name, an answer address, or an upstream authority.
   optional gio.common.v1.NetworkEndpoint resolver = 5;
   DnsTransport transport = 6;
 
-  // Time from dispatching the query until receipt of the complete response.
+  // Non-negative time from dispatching the query to receipt of the full DNS
+  // message. A DNS message with TC set is still complete for this timing rule.
+  // Required; zero is valid. Excludes separate fallback/retry exchanges.
   google.protobuf.Duration elapsed = 7;
+
+  // The DNS response header's TC bit. Absent means not reported, not false.
+  // This describes server-side truncation, not local capture truncation.
+  optional bool response_truncated = 8;
 }

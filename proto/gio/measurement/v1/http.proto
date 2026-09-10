@@ -6,29 +6,65 @@ import "google/protobuf/duration.proto";
 
 // HttpHeader preserves one HTTP header field.
 message HttpHeader {
+  // Non-empty HTTP field name. Case-insensitive; casing is not canonicalized.
   string name = 1;
+
+  // Field value octets without the field name, colon, or line terminator.
+  // Empty is a legitimate value. Duplicate fields must not be comma-joined.
   bytes value = 2;
 }
 
-// HttpResult is the final response from one completed HTTP transaction.
+// HttpBodyCapture describes what body bytes are retained in the measurement.
+enum HttpBodyCapture {
+  // Capture completeness was not reported (including by an older producer).
+  // Neither an empty nor a non-empty body implies completeness.
+  HTTP_BODY_CAPTURE_UNSPECIFIED = 0;
+  // The entire response body is present; an empty body is a complete empty body.
+  HTTP_BODY_CAPTURE_COMPLETE = 1;
+  // Only a prefix is retained, possibly empty. The remainder was omitted by
+  // capture policy or could not be received. See the envelope status for failure.
+  HTTP_BODY_CAPTURE_TRUNCATED = 2;
+  // Body capture was intentionally disabled. body must be empty.
+  HTTP_BODY_CAPTURE_NOT_CAPTURED = 3;
+}
+
+// HttpResult describes the final response reached by an HTTP transaction.
+// A PARTIAL measurement may contain its status and headers with an incomplete
+// body. It must not invent response fields when no response was received.
 message HttpResult {
-  // Uppercase HTTP request method used for the transaction, for example "GET".
+  // Uppercase method of the request producing final_url, for example "GET".
+  // This may differ from the initial method after a followed redirect.
   string method = 1;
 
-  // Absolute URL of the final response after any redirects followed by the probe.
+  // Absolute HTTP(S) URL of the final response after any followed redirects.
+  // A redirect not followed remains the final response; no history is implied.
   string final_url = 2;
 
   // HTTP response status code in the inclusive range 100 through 599.
   uint32 status_code = 3;
 
-  // Header order and repeated field names are preserved.
+  // Final response header fields in received order, including duplicates.
+  // Excludes interim responses, trailers, and HTTP/2 pseudo-headers.
   repeated HttpHeader response_headers = 4;
 
-  // Response body bytes after HTTP content-transfer decoding. Content codings are
-  // not implicitly removed and remain described by the response headers.
+  // Retained response body bytes after removal of HTTP transfer framing/codings.
+  // Content codings (e.g. gzip) are retained and described by response headers.
+  // body_capture states completeness; length alone does not.
   bytes body = 5;
 
   // Time from starting the transaction until receipt of the final response body,
-  // including followed redirects.
+  // including followed redirects. Non-negative; zero is meaningful. Required
+  // for SUCCEEDED. Omit if the body transfer did not finish; never report a
+  // time-to-failure here. The envelope still records the execution's end time.
   google.protobuf.Duration elapsed = 6;
+
+  // Producers should report this when capture state is known. UNSPECIFIED
+  // remains valid for historical records; consumers must treat it as unknown.
+  HttpBodyCapture body_capture = 7;
+
+  // Total body octets, in the same encoding as body, when fully observed.
+  // Absent means unknown, not zero. This is not a Content-Length claim.
+  // COMPLETE implies equality with body length; TRUNCATED, when size is known,
+  // implies a strictly larger size. No separate captured size is needed.
+  optional uint64 body_size = 8;
 }

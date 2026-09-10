@@ -14,6 +14,7 @@ import "google/protobuf/timestamp.proto";
 // MeasurementKind identifies the intended measurement operation even when no
 // result payload could be produced.
 enum MeasurementKind {
+  // Not a valid operation for a terminal Measurement.
   MEASUREMENT_KIND_UNSPECIFIED = 0;
   MEASUREMENT_KIND_DNS = 1;
   MEASUREMENT_KIND_HTTP = 2;
@@ -23,24 +24,46 @@ enum MeasurementKind {
 
 // ExecutionStatus summarizes the terminal state of a measurement.
 enum ExecutionStatus {
+  // Not a valid terminal status.
   EXECUTION_STATUS_UNSPECIFIED = 0;
+  // Execution completed and a usable matching result was produced, without errors.
+  // A negative DNS RCODE or an HTTP error status is still an observed response.
   EXECUTION_STATUS_SUCCEEDED = 1;
+  // Execution ended with errors before a usable typed result could be produced.
   EXECUTION_STATUS_FAILED = 2;
+  // Execution ended with errors but retained a usable matching result. The result
+  // must satisfy its own field rules; PARTIAL does not permit invented values.
+  // Intentional omission of optional metadata alone is not a partial execution.
   EXECUTION_STATUS_PARTIAL = 3;
 }
 
 // MeasurementErrorCode is a stable, machine-readable error classification.
 enum MeasurementErrorCode {
+  // Not a valid error classification in a terminal Measurement.
   MEASUREMENT_ERROR_CODE_UNSPECIFIED = 0;
+  // Execution was explicitly cancelled, rather than reaching a deadline.
   MEASUREMENT_ERROR_CODE_CANCELLED = 1;
+  // An execution or operation deadline expired, at any protocol stage.
   MEASUREMENT_ERROR_CODE_TIMEOUT = 2;
+  // A prerequisite name lookup failed; a measured DNS RCODE is result data.
   MEASUREMENT_ERROR_CODE_DNS_RESOLUTION_FAILED = 3;
+  // The destination network or host could not be reached.
   MEASUREMENT_ERROR_CODE_NETWORK_UNREACHABLE = 4;
+  // The peer refused establishment of a transport connection.
   MEASUREMENT_ERROR_CODE_CONNECTION_REFUSED = 5;
+  // An established or establishing transport connection was reset.
   MEASUREMENT_ERROR_CODE_CONNECTION_RESET = 6;
+  // TLS negotiation failed, without a more specific cancellation, timeout,
+  // prerequisite DNS, or transport cause above.
   MEASUREMENT_ERROR_CODE_TLS_HANDSHAKE_FAILED = 7;
+  // An observed exchange violated the measured protocol or could not be parsed.
+  // Ordinary negative DNS/HTTP responses are not protocol errors.
   MEASUREMENT_ERROR_CODE_PROTOCOL_ERROR = 8;
+  // A probe malfunction or local execution failure prevented the observation.
   MEASUREMENT_ERROR_CODE_INTERNAL_ERROR = 9;
+  // A failure occurred but no more precise category above is known or applicable.
+  // This must not be used to guess that an external failure was a probe defect.
+  MEASUREMENT_ERROR_CODE_OTHER = 10;
 }
 
 // MeasurementError reports a protocol-visible execution failure.
@@ -56,23 +79,30 @@ message MeasurementError {
 //
 // A succeeded measurement has exactly one matching result and no errors. A
 // failed measurement has at least one error and no result. A partial measurement
-// has both a matching result and at least one error.
+// has both a matching result and at least one error. These rules apply to kinds
+// and statuses understood by the reader; unknown future values are decodable
+// but require newer semantics, rather than being treated as UNSPECIFIED.
 message Measurement {
-  // Globally unique, opaque identity assigned to this measurement execution.
+  // Non-empty, globally unique, opaque identity for this execution. Retransmission
+  // retains it; a new execution uses a new ID. No UUID/ULID encoding is required.
   string measurement_id = 1;
 
+  // Deliberately redundant with result: identifies the attempt even on FAILED.
   MeasurementKind kind = 2;
 
-  // Time at which execution of this measurement began.
+  // Required UTC wall-clock time at which execution began, not ingestion time.
   google.protobuf.Timestamp started_at = 3;
 
   // Time at which execution reached its terminal status. This must not precede
-  // started_at.
+  // started_at. Required even on failure; equality is valid at clock resolution.
   google.protobuf.Timestamp finished_at = 4;
+
+  // Required probe identity; optional descriptive metadata may be omitted.
   gio.common.v1.ProbeContext probe = 5;
   optional gio.common.v1.NetworkContext network = 6;
   Target target = 7;
   ExecutionStatus status = 8;
+  // Distinct observed failures. Order does not imply priority or causal ordering.
   repeated MeasurementError errors = 9;
 
   oneof result {

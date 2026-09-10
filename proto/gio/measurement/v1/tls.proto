@@ -5,22 +5,30 @@ package gio.measurement.v1;
 import "gio/common/v1/network.proto";
 import "google/protobuf/duration.proto";
 
-// TlsHandshakeResult describes one completed TLS handshake.
+// TlsHandshakeResult describes one successfully completed TLS handshake.
+// A failed handshake has no result, even if certificates were seen beforehand.
+// Certificate trust/hostname validation policy is not asserted by this result.
 message TlsHandshakeResult {
+  // Actual transport peer for the completed handshake, after resolution; required.
   gio.common.v1.NetworkEndpoint remote_endpoint = 1;
 
-  // Server Name Indication value sent by the probe, when one was sent.
+  // SNI value actually sent, when recorded. Absent means not sent or not recorded;
+  // it does not imply that the target hostname was sent. Present values are non-empty.
   optional string server_name = 2;
 
-  // Negotiated TLS protocol version, for example "TLSv1.3".
+  // Non-empty negotiated protocol version, e.g. "TLSv1.2" or "TLSv1.3".
+  // These spellings are canonical for those versions; never report an offered version.
   string protocol_version = 3;
 
-  // IANA cipher suite name negotiated by the peers.
+  // Non-empty IANA cipher suite name negotiated by the peers (TLS_... spelling).
   string cipher_suite = 4;
 
-  // Peer certificate chain in peer-supplied order, encoded as DER certificates.
+  // Each item is one complete DER certificate, leaf first, then in peer-supplied
+  // order. Do not append local trust roots. Empty means none recorded, not proof
+  // that the peer sent no certificates. No trust or completeness claim is implied.
   repeated bytes peer_certificates = 5;
 
-  // Time from starting the handshake until it completed successfully.
+  // Required non-negative time from starting the handshake to successful completion,
+  // excluding DNS/TCP setup. Zero is meaningful; never time-to-failure.
   google.protobuf.Duration elapsed = 6;
 }

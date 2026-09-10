@@ -4,12 +4,14 @@ package gio.common.v1;
 
 // IpAddress contains an IPv4 or IPv6 address in network byte order.
 message IpAddress {
-  // Exactly 4 bytes denotes IPv4 and exactly 16 bytes denotes IPv6.
+  // Exactly 4 bytes denotes IPv4 and exactly 16 bytes denotes IPv6. Empty is
+  // invalid; there is no text encoding or IPv6 scope/zone identifier here.
   bytes address = 1;
 }
 
 // NetworkEndpoint identifies an IP transport endpoint.
 message NetworkEndpoint {
+  // Required address; the containing field defines requested vs observed use.
   IpAddress ip_address = 1;
 
   // Port is in the inclusive range 1 through 65535.
@@ -18,15 +20,20 @@ message NetworkEndpoint {
 
 // NetworkContext describes the network from which a measurement was made.
 message NetworkContext {
-  // The origin autonomous system number observed for the probe, when known.
+  // Origin AS of the probe's outward-facing network at measurement time, when
+  // known. This is not the target's AS. Zero is invalid; omit unknown values.
   optional uint32 autonomous_system_number = 1;
 
-  // The human-readable organization associated with the origin AS, when known.
+  // Human-readable organization associated with the origin AS, when known.
+  // Diagnostic attribution text, not a stable identifier or normalized name.
   optional string autonomous_system_organization = 2;
 
-  // The uppercase ISO 3166-1 alpha-2 country code associated with the network.
+  // Uppercase ISO 3166-1 alpha-2 country code associated with the observed
+  // network (two ASCII letters). Not a declaration of the probe's location.
   optional string country_code = 3;
 
-  // The probe's externally observed address, when collection policy permits it.
+  // Probe's externally observed address, when known and collection policy
+  // permits. May differ from a local socket address due to NAT. Absence makes
+  // no claim about address family, reachability, or why the address was omitted.
   optional IpAddress observed_ip_address = 4;
 }
