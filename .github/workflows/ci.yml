@@ -48,11 +48,17 @@ jobs:
 
           printf '%s\n' "$changed_files"
 
-          if printf '%s\n' "$changed_files" | grep -Eq '^(proto/.*\.proto|buf\.yaml|buf\.lock|Makefile|scripts/|\.github/workflows/ci\.yml)($|/)'; then
-            echo 'relevant=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'relevant=false' >> "$GITHUB_OUTPUT"
-          fi
+          relevant=false
+          while IFS= read -r file; do
+            case "$file" in
+              proto/*.proto|buf.yaml|buf.lock|Makefile|scripts/*|.github/workflows/ci.yml)
+                relevant=true
+                break
+                ;;
+            esac
+          done <<< "$changed_files"
+
+          echo "relevant=$relevant" >> "$GITHUB_OUTPUT"
 
       - name: Documentation-only change
         if: steps.changes.outputs.relevant != 'true'
