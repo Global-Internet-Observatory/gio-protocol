@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package gio.measurement.v1;
+
+import "gio/common/v1/network.proto";
+import "google/protobuf/duration.proto";
+
+// TlsHandshakeResult describes one completed TLS handshake.
+message TlsHandshakeResult {
+  gio.common.v1.NetworkEndpoint remote_endpoint = 1;
+
+  // Server Name Indication value sent by the probe, when one was sent.
+  optional string server_name = 2;
+
+  // Negotiated TLS protocol version, for example "TLSv1.3".
+  string protocol_version = 3;
+
+  // IANA cipher suite name negotiated by the peers.
+  string cipher_suite = 4;
+
+  // Peer certificate chain in peer-supplied order, encoded as DER certificates.
+  repeated bytes peer_certificates = 5;
+
+  // Time from starting the handshake until it completed successfully.
+  google.protobuf.Duration elapsed = 6;
+}

@@ -1,0 +1,84 @@
+syntax = "proto3";
+
+package gio.measurement.v1;
+
+import "gio/common/v1/network.proto";
+import "gio/common/v1/probe.proto";
+import "gio/measurement/v1/dns.proto";
+import "gio/measurement/v1/http.proto";
+import "gio/measurement/v1/target.proto";
+import "gio/measurement/v1/tcp.proto";
+import "gio/measurement/v1/tls.proto";
+import "google/protobuf/timestamp.proto";
+
+// MeasurementKind identifies the intended measurement operation even when no
+// result payload could be produced.
+enum MeasurementKind {
+  MEASUREMENT_KIND_UNSPECIFIED = 0;
+  MEASUREMENT_KIND_DNS = 1;
+  MEASUREMENT_KIND_HTTP = 2;
+  MEASUREMENT_KIND_TCP_CONNECT = 3;
+  MEASUREMENT_KIND_TLS_HANDSHAKE = 4;
+}
+
+// ExecutionStatus summarizes the terminal state of a measurement.
+enum ExecutionStatus {
+  EXECUTION_STATUS_UNSPECIFIED = 0;
+  EXECUTION_STATUS_SUCCEEDED = 1;
+  EXECUTION_STATUS_FAILED = 2;
+  EXECUTION_STATUS_PARTIAL = 3;
+}
+
+// MeasurementErrorCode is a stable, machine-readable error classification.
+enum MeasurementErrorCode {
+  MEASUREMENT_ERROR_CODE_UNSPECIFIED = 0;
+  MEASUREMENT_ERROR_CODE_CANCELLED = 1;
+  MEASUREMENT_ERROR_CODE_TIMEOUT = 2;
+  MEASUREMENT_ERROR_CODE_DNS_RESOLUTION_FAILED = 3;
+  MEASUREMENT_ERROR_CODE_NETWORK_UNREACHABLE = 4;
+  MEASUREMENT_ERROR_CODE_CONNECTION_REFUSED = 5;
+  MEASUREMENT_ERROR_CODE_CONNECTION_RESET = 6;
+  MEASUREMENT_ERROR_CODE_TLS_HANDSHAKE_FAILED = 7;
+  MEASUREMENT_ERROR_CODE_PROTOCOL_ERROR = 8;
+  MEASUREMENT_ERROR_CODE_INTERNAL_ERROR = 9;
+}
+
+// MeasurementError reports a protocol-visible execution failure.
+message MeasurementError {
+  MeasurementErrorCode code = 1;
+
+  // Human-readable diagnostic detail. Consumers must not parse this field or
+  // rely on its wording; code is the stable classification.
+  optional string detail = 2;
+}
+
+// Measurement is the versioned envelope exchanged by GIO components.
+//
+// A succeeded measurement has exactly one matching result and no errors. A
+// failed measurement has at least one error and no result. A partial measurement
+// has both a matching result and at least one error.
+message Measurement {
+  // Globally unique, opaque identity assigned to this measurement execution.
+  string measurement_id = 1;
+
+  MeasurementKind kind = 2;
+
+  // Time at which execution of this measurement began.
+  google.protobuf.Timestamp started_at = 3;
+
+  // Time at which execution reached its terminal status. This must not precede
+  // started_at.
+  google.protobuf.Timestamp finished_at = 4;
+  gio.common.v1.ProbeContext probe = 5;
+  optional gio.common.v1.NetworkContext network = 6;
+  Target target = 7;
+  ExecutionStatus status = 8;
+  repeated MeasurementError errors = 9;
+
+  oneof result {
+    DnsResult dns_result = 20;
+    HttpResult http_result = 21;
+    TcpConnectResult tcp_connect_result = 22;
+    TlsHandshakeResult tls_handshake_result = 23;
+  }
+}

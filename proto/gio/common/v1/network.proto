@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package gio.common.v1;
+
+// IpAddress contains an IPv4 or IPv6 address in network byte order.
+message IpAddress {
+  // Exactly 4 bytes denotes IPv4 and exactly 16 bytes denotes IPv6.
+  bytes address = 1;
+}
+
+// NetworkEndpoint identifies an IP transport endpoint.
+message NetworkEndpoint {
+  IpAddress ip_address = 1;
+
+  // Port is in the inclusive range 1 through 65535.
+  uint32 port = 2;
+}
+
+// NetworkContext describes the network from which a measurement was made.
+message NetworkContext {
+  // The origin autonomous system number observed for the probe, when known.
+  optional uint32 autonomous_system_number = 1;
+
+  // The human-readable organization associated with the origin AS, when known.
+  optional string autonomous_system_organization = 2;
+
+  // The uppercase ISO 3166-1 alpha-2 country code associated with the network.
+  optional string country_code = 3;
+
+  // The probe's externally observed address, when collection policy permits it.
+  optional IpAddress observed_ip_address = 4;
+}

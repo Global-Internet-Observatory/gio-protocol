@@ -1,0 +1,46 @@
+{
+  "measurementId": "01J7GIO0000000000000000002",
+  "kind": "MEASUREMENT_KIND_DNS",
+  "startedAt": "2026-09-10T10:01:00Z",
+  "finishedAt": "2026-09-10T10:01:00.024Z",
+  "probe": {
+    "probeId": "probe-tokyo-1",
+    "softwareName": "gio-probe",
+    "softwareVersion": "0.1.0",
+    "location": {
+      "countryCode": "JP",
+      "subdivisionCode": "13",
+      "locality": "Tokyo"
+    }
+  },
+  "network": {
+    "autonomousSystemNumber": 64496,
+    "autonomousSystemOrganization": "Documentation Network",
+    "countryCode": "JP"
+  },
+  "target": {
+    "hostname": "example.com"
+  },
+  "status": "EXECUTION_STATUS_SUCCEEDED",
+  "dnsResult": {
+    "queryName": "example.com",
+    "queryType": 1,
+    "responseCode": 0,
+    "answers": [
+      {
+        "name": "example.com",
+        "type": 1,
+        "ttlSeconds": 300,
+        "data": "192.0.2.1"
+      }
+    ],
+    "resolver": {
+      "ipAddress": {
+        "address": "wAACNQ=="
+      },
+      "port": 53
+    },
+    "transport": "DNS_TRANSPORT_UDP",
+    "elapsed": "0.024s"
+  }
+}

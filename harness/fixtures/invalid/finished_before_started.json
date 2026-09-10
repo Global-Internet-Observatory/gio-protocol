@@ -1,0 +1,23 @@
+{
+  "measurementId": "invalid-time-order",
+  "kind": "MEASUREMENT_KIND_TCP_CONNECT",
+  "startedAt": "2026-09-10T10:00:01Z",
+  "finishedAt": "2026-09-10T10:00:00Z",
+  "probe": {
+    "probeId": "probe-tokyo-1"
+  },
+  "target": {
+    "hostname": "example.com",
+    "port": 443
+  },
+  "status": "EXECUTION_STATUS_SUCCEEDED",
+  "tcpConnectResult": {
+    "remoteEndpoint": {
+      "ipAddress": {
+        "address": "wAACAQ=="
+      },
+      "port": 443
+    },
+    "elapsed": "0.001s"
+  }
+}

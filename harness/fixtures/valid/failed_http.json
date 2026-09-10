@@ -1,0 +1,19 @@
+{
+  "measurementId": "01J7GIO0000000000000000003",
+  "kind": "MEASUREMENT_KIND_HTTP",
+  "startedAt": "2026-09-10T10:02:00Z",
+  "finishedAt": "2026-09-10T10:02:10Z",
+  "probe": {
+    "probeId": "probe-tokyo-1"
+  },
+  "target": {
+    "url": "https://example.com/"
+  },
+  "status": "EXECUTION_STATUS_FAILED",
+  "errors": [
+    {
+      "code": "MEASUREMENT_ERROR_CODE_TIMEOUT",
+      "detail": "No response before the measurement deadline"
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package gio.measurement.v1;
+
+import "gio/common/v1/network.proto";
+import "google/protobuf/duration.proto";
+
+// DnsTransport identifies the transport used for a DNS exchange.
+enum DnsTransport {
+  DNS_TRANSPORT_UNSPECIFIED = 0;
+  DNS_TRANSPORT_UDP = 1;
+  DNS_TRANSPORT_TCP = 2;
+  DNS_TRANSPORT_TLS = 3;
+  DNS_TRANSPORT_HTTPS = 4;
+}
+
+// DnsAnswer contains one resource record returned in a DNS answer section.
+message DnsAnswer {
+  // Owner name in DNS presentation format.
+  string name = 1;
+
+  // IANA DNS resource record TYPE numeric value.
+  uint32 type = 2;
+
+  uint32 ttl_seconds = 3;
+
+  // Resource data in the conventional presentation format for its TYPE.
+  string data = 4;
+}
+
+// DnsResult is the result of one completed DNS query.
+message DnsResult {
+  // Query name in DNS presentation format, without a trailing root dot.
+  string query_name = 1;
+
+  // IANA DNS QTYPE numeric value.
+  uint32 query_type = 2;
+
+  // IANA DNS response code numeric value.
+  optional uint32 response_code = 3;
+
+  repeated DnsAnswer answers = 4;
+  optional gio.common.v1.NetworkEndpoint resolver = 5;
+  DnsTransport transport = 6;
+
+  // Time from dispatching the query until receipt of the complete response.
+  google.protobuf.Duration elapsed = 7;
+}

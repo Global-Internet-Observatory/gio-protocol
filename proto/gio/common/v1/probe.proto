@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package gio.common.v1;
+
+// ProbeLocation is the declared geographic context of a probe.
+message ProbeLocation {
+  // The uppercase ISO 3166-1 alpha-2 country code, when known.
+  optional string country_code = 1;
+
+  // The ISO 3166-2 subdivision code without the country prefix, when known.
+  optional string subdivision_code = 2;
+
+  // A human-readable locality name, when known.
+  optional string locality = 3;
+}
+
+// ProbeContext identifies the probe and software that produced a measurement.
+message ProbeContext {
+  // Stable identifier assigned to the measurement probe.
+  string probe_id = 1;
+
+  // Identifier for the probe deployment or installation, when distinct from the probe.
+  optional string deployment_id = 2;
+
+  optional string software_name = 3;
+  optional string software_version = 4;
+  optional ProbeLocation location = 5;
+}

@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package gio.measurement.v1;
+
+import "gio/common/v1/network.proto";
+import "google/protobuf/duration.proto";
+
+// TcpConnectResult describes a completed TCP connection attempt.
+message TcpConnectResult {
+  gio.common.v1.NetworkEndpoint remote_endpoint = 1;
+  optional gio.common.v1.NetworkEndpoint local_endpoint = 2;
+
+  // Time from starting the connection attempt until the connection was established.
+  google.protobuf.Duration elapsed = 3;
+}
