@@ -26,8 +26,10 @@ build:
 breaking:
 	@if [ -z "$(PROTO_FILES)" ]; then \
 		echo 'No .proto files yet; breaking check skipped.'; \
-	elif ! git rev-parse --verify '$(BREAKING_BASE)^{commit}' >/dev/null 2>&1 || \
-		! git ls-tree -r --name-only '$(BREAKING_BASE)' -- proto | grep -q '\.proto$$'; then \
+	elif ! git rev-parse --verify '$(BREAKING_BASE)^{commit}' >/dev/null 2>&1; then \
+		echo 'Cannot resolve breaking-change baseline: $(BREAKING_BASE)' >&2; \
+		exit 1; \
+	elif ! git ls-tree -r --name-only '$(BREAKING_BASE)' -- proto | grep -q '\.proto$$'; then \
 		echo 'The breaking-change baseline has no .proto files; check skipped.'; \
 	else \
 		$(BUF) breaking --against '.git#ref=$(BREAKING_BASE)'; \

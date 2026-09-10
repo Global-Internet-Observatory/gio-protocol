@@ -1,0 +1,29 @@
+{
+  "measurementId": "fixture-tls",
+  "kind": "MEASUREMENT_KIND_TLS_HANDSHAKE",
+  "startedAt": "2026-09-10T10:00:00Z",
+  "finishedAt": "2026-09-10T10:00:00.050Z",
+  "probe": {
+    "probeId": "probe-example"
+  },
+  "target": {
+    "hostname": "example.com",
+    "port": 443
+  },
+  "status": "EXECUTION_STATUS_SUCCEEDED",
+  "tlsHandshakeResult": {
+    "remoteEndpoint": {
+      "ipAddress": {
+        "address": "IAENuAAAAAAAAAAAAAAAAQ=="
+      },
+      "port": 443
+    },
+    "serverName": "example.com",
+    "protocolVersion": "TLSv1.3",
+    "cipherSuite": "TLS_AES_128_GCM_SHA256",
+    "peerCertificates": [
+      "MIIBbTCCARSgAwIBAgIBATAKBggqhkjOPQQDAjAWMRQwEgYDVQQDDAtleGFtcGxlLmNvbTAeFw0yNjA5MTAxMjE1MDhaFw0yNjA5MTExMjE1MDhaMBYxFDASBgNVBAMMC2V4YW1wbGUuY29tMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE638P722kb3caw6uQnOGgKZ+P7sWeO/xUjI6MO4nKTXRjdmHLeD7wYte+Se+Sv3JNxJD+GFUevevJc20oKkm/8qNTMFEwHQYDVR0OBBYEFGUuoCJcUL8drdBx4Dh8rhSe7NAxMB8GA1UdIwQYMBaAFGUuoCJcUL8drdBx4Dh8rhSe7NAxMA8GA1UdEwEB/wQFMAMBAf8wCgYIKoZIzj0EAwIDRwAwRAIgXmPQjcWWy2euB57J87R6jlzNHdJUK25MaHBNanZ2y8cCIFu/XjkkdncRgoXuoxujKyUziur7Cw9fhH6u/Si/+xpr"
+    ],
+    "elapsed": "0.040s"
+  }
+}

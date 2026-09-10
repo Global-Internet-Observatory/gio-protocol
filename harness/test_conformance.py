@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""Exercise JSON fixtures against the Measurement v1 wire contract."""
+"""Repository-internal checks of decoded Measurement v1 semantics, using Buf."""
 
 import argparse
 import base64
-import binascii
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
-from datetime import datetime
-from typing import Any, Dict, Iterable, List
 from urllib.parse import urlsplit
+
+from test_wire import run_wire_tests
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,112 +25,130 @@ RESULT_FOR_KIND = {
     "MEASUREMENT_KIND_TLS_HANDSHAKE": "tlsHandshakeResult",
 }
 RESULT_FIELDS = set(RESULT_FOR_KIND.values())
-COUNTRY_CODE = re.compile(r"^[A-Z]{2}$")
-DURATION = re.compile(r"^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,9})?s$")
+STATUSES = {"EXECUTION_STATUS_" + name for name in ("SUCCEEDED", "FAILED", "PARTIAL")}
+ERROR_CODES = {"MEASUREMENT_ERROR_CODE_" + name for name in (
+    "CANCELLED", "TIMEOUT", "DNS_RESOLUTION_FAILED", "NETWORK_UNREACHABLE",
+    "CONNECTION_REFUSED", "CONNECTION_RESET", "TLS_HANDSHAKE_FAILED",
+    "PROTOCOL_ERROR", "INTERNAL_ERROR", "OTHER",
+)}
+DNS_TRANSPORTS = {"DNS_TRANSPORT_" + name for name in ("UDP", "TCP", "TLS", "HTTPS")}
+BODY_CAPTURES = {"HTTP_BODY_CAPTURE_" + name for name in (
+    "UNSPECIFIED", "COMPLETE", "TRUNCATED", "NOT_CAPTURED",
+)}
+COUNTRY_CODE = re.compile(r"[A-Z]{2}")
+TIMESTAMP = re.compile(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?Z")
+DURATION = re.compile(r"(?:0|[1-9][0-9]*)(?:\.[0-9]{1,9})?s")
 
 
 class ConformanceError(ValueError):
-    """A message violates a Measurement v1 semantic invariant."""
+    """Schema-decodable data violates a known GIO invariant (not protobuf syntax)."""
+
+    def __init__(self, rule, message):
+        self.rule = rule
+        super().__init__(f"{rule}: {message}")
 
 
-def fail(message: str) -> None:
-    raise ConformanceError(message)
+class UnsupportedSemantics(ValueError):
+    """A wire-decodable enum value requires semantics this reader does not know."""
 
 
-def nonempty_string(value: Any, field: str) -> str:
-    if not isinstance(value, str) or not value:
-        fail(f"{field} must be a non-empty string")
+class WireError(ValueError):
+    """Buf failed to build or convert a message; never an expected semantic failure."""
+
+
+def require(condition, rule, message):
+    if not condition:
+        raise ConformanceError(rule, message)
+
+
+def nonempty_string(value, field):
+    require(isinstance(value, str) and bool(value), "required_value", f"{field} must be non-empty")
     return value
 
 
-def positive_port(value: Any, field: str) -> None:
-    if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= 65535:
-        fail(f"{field} must be an integer from 1 through 65535")
+def known_enum(value, names, field):
+    # Buf renders known values as names and unrecognized values as integers.
+    # Zero/default is an invalid GIO sentinel, not an unknown future value.
+    require(value not in (None, 0) and not str(value).endswith("_UNSPECIFIED"),
+            "unspecified_enum", f"{field} must be specified")
+    if value not in names:
+        raise UnsupportedSemantics(f"{field}: unrecognized value {value!r}")
+    return value
 
 
-def validate_ip_address(value: Any, field: str) -> None:
-    if not isinstance(value, dict):
-        fail(f"{field} must be an object")
-    encoded = nonempty_string(value.get("address"), f"{field}.address")
-    try:
-        decoded = base64.b64decode(encoded, validate=True)
-    except (binascii.Error, ValueError):
-        fail(f"{field}.address must be canonical base64")
-    if len(decoded) not in (4, 16):
-        fail(f"{field}.address must contain exactly 4 or 16 bytes")
+def positive_port(value, field):
+    require(isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 65535,
+            "endpoint_port", f"{field} must be from 1 through 65535")
 
 
-def validate_endpoint(value: Any, field: str) -> None:
-    if not isinstance(value, dict):
-        fail(f"{field} must be an object")
+def validate_ip_address(value, field):
+    require(isinstance(value, dict), "ip_length", f"{field} is required")
+    # Buf already checked the JSON bytes representation; inspect decoded octet count.
+    address = base64.b64decode(value.get("address", ""), validate=True)
+    require(len(address) in (4, 16), "ip_length", f"{field} must contain 4 or 16 bytes")
+
+
+def validate_endpoint(value, field):
+    require(isinstance(value, dict), "required_value", f"{field} is required")
     validate_ip_address(value.get("ipAddress"), f"{field}.ipAddress")
-    positive_port(value.get("port"), f"{field}.port")
+    positive_port(value.get("port", 0), f"{field}.port")
 
 
-def parse_timestamp(value: Any, field: str) -> datetime:
-    text = nonempty_string(value, field)
+def parse_timestamp(value, field):
+    # Only normalized ProtoJSON from Buf enters semantic validation. Its decoder
+    # checks Timestamp ranges/calendar validity. Preserve all nine fractional digits.
+    match = TIMESTAMP.fullmatch(nonempty_string(value, field))
+    require(match is not None, "timestamp", f"{field} must be a normalized Timestamp")
+    return match[1], int((match[2] or "").ljust(9, "0"))
+
+
+def validate_duration(value, field):
+    require(isinstance(value, str) and DURATION.fullmatch(value) is not None,
+            "duration", f"{field} must be a present, non-negative Duration")
+
+
+def validate_country_code(value, field):
+    if value is not None:
+        require(isinstance(value, str) and COUNTRY_CODE.fullmatch(value) is not None,
+                "country_code", f"{field} must contain two uppercase ASCII letters")
+
+
+def validate_absolute_url(value, field, schemes=()):
+    nonempty_string(value, field)
     try:
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        parsed = urlsplit(value)
+        valid = bool(parsed.scheme and parsed.netloc and parsed.hostname)
+        port = parsed.port  # Also reject malformed/out-of-range URL ports.
+        valid = valid and (port is None or port > 0)
+        valid = valid and not any(char.isspace() for char in value)
     except ValueError:
-        fail(f"{field} must be an RFC 3339 timestamp")
-    if parsed.tzinfo is None:
-        fail(f"{field} must include a UTC offset")
-    return parsed
+        valid = False
+    require(valid, "url", f"{field} must be an absolute URL with an authority")
+    require(not schemes or parsed.scheme.lower() in schemes,
+            "url", f"{field} must use one of {schemes}")
 
 
-def validate_duration(value: Any, field: str) -> None:
-    text = nonempty_string(value, field)
-    if not DURATION.fullmatch(text):
-        fail(f"{field} must be a non-negative protobuf duration")
-
-
-def validate_country_code(value: Any, field: str) -> None:
-    if value is not None and (not isinstance(value, str) or not COUNTRY_CODE.fullmatch(value)):
-        fail(f"{field} must be an uppercase ISO 3166-1 alpha-2 code")
-
-
-def validate_absolute_url(value: Any, field: str, schemes: Iterable[str] = ()) -> None:
-    text = nonempty_string(value, field)
-    parsed = urlsplit(text)
-    if not parsed.scheme or not parsed.netloc:
-        fail(f"{field} must be an absolute URL with an authority")
-    allowed = set(schemes)
-    if allowed and parsed.scheme.lower() not in allowed:
-        fail(f"{field} must use one of: {', '.join(sorted(allowed))}")
-
-
-def validate_probe(value: Any) -> None:
-    if not isinstance(value, dict):
-        fail("probe must be an object")
+def validate_probe(value):
+    require(isinstance(value, dict), "required_value", "probe is required")
     nonempty_string(value.get("probeId"), "probe.probeId")
-    location = value.get("location")
-    if location is not None:
-        if not isinstance(location, dict):
-            fail("probe.location must be an object")
-        validate_country_code(location.get("countryCode"), "probe.location.countryCode")
+    if "location" in value:
+        validate_country_code(value["location"].get("countryCode"), "probe.location.countryCode")
 
 
-def validate_network(value: Any) -> None:
-    if not isinstance(value, dict):
-        fail("network must be an object")
-    asn = value.get("autonomousSystemNumber")
-    if asn is not None and (not isinstance(asn, int) or isinstance(asn, bool) or asn < 1):
-        fail("network.autonomousSystemNumber must be a positive integer")
+def validate_network(value):
+    if "autonomousSystemNumber" in value:
+        require(value["autonomousSystemNumber"] > 0, "asn", "origin ASN cannot be zero")
     validate_country_code(value.get("countryCode"), "network.countryCode")
-    address = value.get("observedIpAddress")
-    if address is not None:
-        validate_ip_address(address, "network.observedIpAddress")
+    if "observedIpAddress" in value:
+        validate_ip_address(value["observedIpAddress"], "network.observedIpAddress")
 
 
-def validate_target(value: Any) -> None:
-    if not isinstance(value, dict):
-        fail("target must be an object")
-    if not any(value.get(field) for field in ("hostname", "ipAddress", "url")):
-        fail("target must contain hostname, ipAddress, or url")
+def validate_target(value):
+    require(isinstance(value, dict) and any(value.get(f) for f in ("hostname", "ipAddress", "url")),
+            "target", "target must contain a hostname, IP address, or URL")
     if "hostname" in value:
         hostname = nonempty_string(value["hostname"], "target.hostname")
-        if hostname.endswith("."):
-            fail("target.hostname must not have a trailing root dot")
+        require(not hostname.endswith("."), "target", "hostname must not have a trailing root dot")
     if "ipAddress" in value:
         validate_ip_address(value["ipAddress"], "target.ipAddress")
     if "port" in value:
@@ -139,61 +157,64 @@ def validate_target(value: Any) -> None:
         validate_absolute_url(value["url"], "target.url")
 
 
-def validate_error(value: Any, index: int) -> None:
-    if not isinstance(value, dict):
-        fail(f"errors[{index}] must be an object")
-    code = value.get("code")
-    if code in (None, 0, "MEASUREMENT_ERROR_CODE_UNSPECIFIED"):
-        fail(f"errors[{index}].code must be specified")
-
-
-def validate_dns(value: Any) -> None:
-    if not isinstance(value, dict):
-        fail("dnsResult must be an object")
+def validate_dns(value, status):
     name = nonempty_string(value.get("queryName"), "dnsResult.queryName")
-    if name.endswith("."):
-        fail("dnsResult.queryName must not have a trailing root dot")
-    query_type = value.get("queryType")
-    if not isinstance(query_type, int) or isinstance(query_type, bool) or query_type < 1:
-        fail("dnsResult.queryType must be a positive IANA QTYPE")
-    response_code = value.get("responseCode")
-    if not isinstance(response_code, int) or isinstance(response_code, bool) or not 0 <= response_code <= 65535:
-        fail("dnsResult.responseCode must be an integer from 0 through 65535")
-    if value.get("transport") in (None, 0, "DNS_TRANSPORT_UNSPECIFIED"):
-        fail("dnsResult.transport must be specified")
+    require(not name.endswith("."), "dns_name", "queryName must not have a trailing root dot")
+    require(1 <= value.get("queryType", 0) <= 65535, "dns_type", "QTYPE must be 1 through 65535")
+    require("responseCode" in value and 0 <= value["responseCode"] <= 4095,
+            "dns_rcode", "a usable DNS response requires an RCODE in 0 through 4095")
+    known_enum(value.get("transport"), DNS_TRANSPORTS, "dnsResult.transport")
     if "resolver" in value:
         validate_endpoint(value["resolver"], "dnsResult.resolver")
+    for answer in value.get("answers", []):
+        nonempty_string(answer.get("name"), "dnsResult.answers.name")
+        require(1 <= answer.get("type", 0) <= 65535, "dns_type", "RR TYPE must be 1 through 65535")
+        # RDATA text depends on TYPE. Do not implement a second DNS parser here.
     validate_duration(value.get("elapsed"), "dnsResult.elapsed")
 
 
-def validate_http(value: Any) -> None:
-    if not isinstance(value, dict):
-        fail("httpResult must be an object")
+def validate_http(value, status):
     method = nonempty_string(value.get("method"), "httpResult.method")
-    if method != method.upper():
-        fail("httpResult.method must be uppercase")
+    require(re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Z-]+", method) is not None,
+            "http_method", "method must be an uppercase HTTP token")
     validate_absolute_url(value.get("finalUrl"), "httpResult.finalUrl", ("http", "https"))
-    status_code = value.get("statusCode")
-    if not isinstance(status_code, int) or isinstance(status_code, bool) or not 100 <= status_code <= 599:
-        fail("httpResult.statusCode must be an integer from 100 through 599")
-    validate_duration(value.get("elapsed"), "httpResult.elapsed")
+    require(100 <= value.get("statusCode", 0) <= 599, "http_status", "statusCode must be 100 through 599")
+    for header in value.get("responseHeaders", []):
+        name = nonempty_string(header.get("name"), "httpResult.responseHeaders.name")
+        require(re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+", name) is not None,
+                "http_header", "header name must be an HTTP token")
+    if status == "EXECUTION_STATUS_SUCCEEDED" or "elapsed" in value:
+        validate_duration(value.get("elapsed"), "httpResult.elapsed")
+    capture = value.get("bodyCapture", "HTTP_BODY_CAPTURE_UNSPECIFIED")
+    if capture not in BODY_CAPTURES:
+        raise UnsupportedSemantics(f"httpResult.bodyCapture: unrecognized value {capture!r}")
+    captured = len(base64.b64decode(value.get("body", ""), validate=True))
+    size = int(value["bodySize"]) if "bodySize" in value else None
+    require(size is None or size >= captured, "http_body_size", "bodySize cannot be smaller than body")
+    if capture == "HTTP_BODY_CAPTURE_COMPLETE":
+        require(size is None or size == captured, "http_body_size", "complete bodySize must equal body length")
+    elif capture == "HTTP_BODY_CAPTURE_TRUNCATED":
+        require(size is None or size > captured, "http_body_size", "truncated bodySize must exceed body length")
+    elif capture == "HTTP_BODY_CAPTURE_NOT_CAPTURED":
+        require(captured == 0, "http_body_capture", "uncaptured body must be empty")
 
 
-def validate_tcp(value: Any) -> None:
-    if not isinstance(value, dict):
-        fail("tcpConnectResult must be an object")
+def validate_tcp(value, status):
     validate_endpoint(value.get("remoteEndpoint"), "tcpConnectResult.remoteEndpoint")
     if "localEndpoint" in value:
         validate_endpoint(value["localEndpoint"], "tcpConnectResult.localEndpoint")
     validate_duration(value.get("elapsed"), "tcpConnectResult.elapsed")
 
 
-def validate_tls(value: Any) -> None:
-    if not isinstance(value, dict):
-        fail("tlsHandshakeResult must be an object")
+def validate_tls(value, status):
     validate_endpoint(value.get("remoteEndpoint"), "tlsHandshakeResult.remoteEndpoint")
+    if "serverName" in value:
+        nonempty_string(value["serverName"], "tlsHandshakeResult.serverName")
     nonempty_string(value.get("protocolVersion"), "tlsHandshakeResult.protocolVersion")
     nonempty_string(value.get("cipherSuite"), "tlsHandshakeResult.cipherSuite")
+    for certificate in value.get("peerCertificates", []):
+        require(bool(base64.b64decode(certificate, validate=True)), "tls_certificate", "DER certificate cannot be empty")
+    # Certificate parsing, chain building and trust policy are not harness dependencies.
     validate_duration(value.get("elapsed"), "tlsHandshakeResult.elapsed")
 
 
@@ -205,131 +226,144 @@ RESULT_VALIDATORS = {
 }
 
 
-def validate_measurement(value: Any) -> None:
-    if not isinstance(value, dict):
-        fail("measurement must be an object")
+def validate_measurement(value):
+    """Accept normalized, schema-decoded ProtoJSON; raise separately for unknown semantics."""
     nonempty_string(value.get("measurementId"), "measurementId")
-    kind = value.get("kind")
-    expected_result = RESULT_FOR_KIND.get(kind)
-    if expected_result is None:
-        fail("kind must identify a supported Measurement v1 result")
-
+    kind = known_enum(value.get("kind"), RESULT_FOR_KIND, "kind")
+    status = known_enum(value.get("status"), STATUSES, "status")
     started = parse_timestamp(value.get("startedAt"), "startedAt")
     finished = parse_timestamp(value.get("finishedAt"), "finishedAt")
-    if finished < started:
-        fail("finishedAt must not precede startedAt")
-
+    require(finished >= started, "timestamp_order", "finishedAt must not precede startedAt")
     validate_probe(value.get("probe"))
     if "network" in value:
         validate_network(value["network"])
     validate_target(value.get("target"))
-
     errors = value.get("errors", [])
-    if not isinstance(errors, list):
-        fail("errors must be a list")
-    for index, error in enumerate(errors):
-        validate_error(error, index)
-
-    present_results = [field for field in RESULT_FIELDS if field in value]
-    if len(present_results) > 1:
-        fail("at most one result may be present")
-    result = present_results[0] if present_results else None
-    status = value.get("status")
+    for error in errors:
+        known_enum(error.get("code"), ERROR_CODES, "errors.code")
+    results = [field for field in RESULT_FIELDS if field in value]
+    require(len(results) <= 1, "oneof", "only one decoded result is permitted")
+    result = results[0] if results else None
     if status == "EXECUTION_STATUS_SUCCEEDED":
-        if result is None or errors:
-            fail("a succeeded measurement requires one result and no errors")
+        require(result is not None and not errors, "status_result", "SUCCEEDED requires a result and no errors")
     elif status == "EXECUTION_STATUS_FAILED":
-        if result is not None or not errors:
-            fail("a failed measurement requires errors and no result")
-    elif status == "EXECUTION_STATUS_PARTIAL":
-        if result is None or not errors:
-            fail("a partial measurement requires one result and errors")
+        require(result is None and bool(errors), "status_result", "FAILED requires errors and no result")
     else:
-        fail("status must be a terminal execution status")
-
+        require(result is not None and bool(errors), "status_result", "PARTIAL requires a result and errors")
     if result is not None:
-        if result != expected_result:
-            fail(f"{kind} requires {expected_result}")
-        RESULT_VALIDATORS[result](value[result])
+        require(result == RESULT_FOR_KIND[kind], "kind_result", f"{kind} requires {RESULT_FOR_KIND[kind]}")
+        RESULT_VALIDATORS[result](value[result], status)
 
 
-def reject_duplicate_keys(pairs: Iterable[Any]) -> Dict[str, Any]:
-    result: Dict[str, Any] = {}
+def reject_duplicate_keys(pairs):
+    result = {}
     for key, value in pairs:
         if key in result:
-            raise ConformanceError(f"duplicate JSON field: {key}")
+            raise WireError(f"duplicate fixture JSON field: {key}")
         result[key] = value
     return result
 
 
-def load_json(path: Path) -> Any:
-    with path.open(encoding="utf-8") as fixture:
-        return json.load(fixture, object_pairs_hook=reject_duplicate_keys)
+def load_json(path):
+    return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=reject_duplicate_keys)
 
 
-def run_buf(buf: str, source: Path, destination: Path, source_format: str, destination_format: str) -> None:
-    command = [
-        buf,
-        "convert",
-        str(ROOT),
-        "--type",
-        MESSAGE_TYPE,
-        "--from",
-        f"{source}#format={source_format}",
-        "--to",
-        f"{destination}#format={destination_format}",
-    ]
-    subprocess.run(command, cwd=ROOT, check=True, capture_output=True, text=True)
+class BufCodec:
+    """Dynamic conversion using temporary descriptors; no generated language APIs."""
 
+    def __init__(self, executable, directory):
+        self.executable = executable
+        self.directory = directory
+        self.schema = directory / "schema.json"
+        self.run("build", str(ROOT), "--as-file-descriptor-set", "--exclude-source-info",
+                 "-o", str(self.schema))
 
-def wire_round_trip(buf: str, fixture: Path) -> Any:
-    with tempfile.TemporaryDirectory(prefix="gio-protocol-") as directory:
-        temporary = Path(directory)
-        first_wire = temporary / "first.binpb"
-        first_json = temporary / "first.json"
-        second_wire = temporary / "second.binpb"
-        second_json = temporary / "second.json"
-        run_buf(buf, fixture, first_wire, "json", "binpb")
-        run_buf(buf, first_wire, first_json, "binpb", "json")
-        run_buf(buf, first_json, second_wire, "json", "binpb")
-        run_buf(buf, second_wire, second_json, "binpb", "json")
-        decoded = load_json(first_json)
-        if decoded != load_json(second_json):
-            fail(f"{fixture.name} changed meaning after a wire round trip")
+    def run(self, *arguments, payload=None):
+        process = subprocess.run([self.executable, *arguments], input=payload,
+                                 capture_output=True, cwd=ROOT)
+        if process.returncode:
+            raise WireError(process.stderr.decode("utf-8", errors="replace").strip())
+        return process.stdout
+
+    def convert(self, payload, source, destination, schema=None):
+        return self.run("convert", str(schema or self.schema), "--type", MESSAGE_TYPE,
+                        "--from", f"-#format={source}", "--to", f"-#format={destination}", payload=payload)
+
+    def encode(self, value, schema=None):
+        # Buf convert discards unknown JSON keys. Reject fixture typos using the
+        # descriptor, without duplicating protobuf's type or wire validation.
+        descriptor = load_json(schema or self.schema)
+        messages = {f".{file['package']}.{message['name']}": message
+                    for file in descriptor["file"] for message in file.get("messageType", [])}
+
+        def check_names(message, type_name):
+            if not isinstance(message, dict) or type_name not in messages:
+                return
+            fields = {name: field for field in messages[type_name].get("field", [])
+                      for name in (field["name"], field.get("jsonName", field["name"]))}
+            for name, item in message.items():
+                if name not in fields:
+                    raise WireError(f"unknown fixture field {type_name}.{name}")
+                field = fields[name]
+                if field["type"] == "TYPE_MESSAGE":
+                    for child in item if isinstance(item, list) else [item]:
+                        check_names(child, field["typeName"])
+
+        check_names(value, "." + MESSAGE_TYPE)
+        return self.convert(json.dumps(value).encode(), "json", "binpb", schema)
+
+    def decode(self, payload, schema=None):
+        return json.loads(self.convert(payload, "binpb", "json", schema))
+
+    def round_trip(self, value):
+        decoded = self.decode(self.encode(value))
+        if decoded != self.decode(self.encode(decoded)):
+            raise WireError("decoded message changed meaning after a wire round trip")
         return decoded
 
 
-def fixture_paths(category: str) -> List[Path]:
-    paths = sorted((FIXTURES / category).glob("*.json"))
-    if not paths:
-        fail(f"no {category} fixtures found")
-    return paths
+def expect_semantic_error(value, rule):
+    try:
+        validate_measurement(value)
+    except ConformanceError as error:
+        if error.rule != rule:
+            raise AssertionError(f"expected {rule}, got {error}") from error
+    else:
+        raise AssertionError(f"expected semantic violation {rule}")
 
 
-def main() -> int:
+def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--buf", default=os.environ.get("BUF", "buf"))
     arguments = parser.parse_args()
-
-    valid = fixture_paths("valid")
-    invalid = fixture_paths("invalid")
-    for fixture in valid:
-        validate_measurement(wire_round_trip(arguments.buf, fixture))
-
-    for fixture in invalid:
-        try:
-            validate_measurement(wire_round_trip(arguments.buf, fixture))
-        except ConformanceError:
-            continue
-        fail(f"invalid fixture unexpectedly passed: {fixture.name}")
-
-    print(f"Conformance fixtures passed: {len(valid)} valid, {len(invalid)} invalid")
+    valid = sorted((FIXTURES / "valid").glob("*.json"))
+    invalid = sorted((FIXTURES / "invalid").glob("*.json"))
+    expected = load_json(FIXTURES / "expectations.json")
+    if not valid or {p.name for p in invalid} != set(expected):
+        raise AssertionError("fixtures missing or invalid fixture expectations out of sync")
+    with tempfile.TemporaryDirectory(prefix="gio-protocol-") as directory:
+        codec = BufCodec(arguments.buf, Path(directory))
+        for fixture in valid:
+            try:
+                validate_measurement(codec.round_trip(load_json(fixture)))
+            except (ConformanceError, UnsupportedSemantics, WireError) as error:
+                raise AssertionError(f"{fixture.name}: {error}") from error
+        for fixture in invalid:
+            # Decoding and round-trip failures cannot pass as expected GIO failures.
+            decoded = codec.round_trip(load_json(fixture))
+            try:
+                expect_semantic_error(decoded, expected[fixture.name])
+            except AssertionError as error:
+                raise AssertionError(f"{fixture.name}: {error}") from error
+        wire_cases = run_wire_tests(codec, FIXTURES, validate_measurement,
+                                    expect_semantic_error, UnsupportedSemantics, WireError)
+    print(f"Conformance passed: {len(valid)} valid, {len(invalid)} semantic-invalid fixtures; {wire_cases} wire cases")
     return 0
 
 
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (ConformanceError, subprocess.CalledProcessError) as error:
-        print(f"conformance error: {error}", file=os.sys.stderr)
+    except (AssertionError, ConformanceError, UnsupportedSemantics, WireError, OSError, ValueError) as error:
+        print(f"conformance error: {error}", file=sys.stderr)
         raise SystemExit(1)

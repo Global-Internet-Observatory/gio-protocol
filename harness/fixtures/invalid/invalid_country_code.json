@@ -1,0 +1,26 @@
+{
+  "measurementId": "invalid_country_code",
+  "kind": "MEASUREMENT_KIND_TCP_CONNECT",
+  "startedAt": "2026-09-10T10:00:00Z",
+  "finishedAt": "2026-09-10T10:00:00Z",
+  "probe": {
+    "probeId": "probe-example",
+    "location": {
+      "countryCode": "jp"
+    }
+  },
+  "target": {
+    "hostname": "example.com",
+    "port": 443
+  },
+  "status": "EXECUTION_STATUS_SUCCEEDED",
+  "tcpConnectResult": {
+    "remoteEndpoint": {
+      "ipAddress": {
+        "address": "wAACAQ=="
+      },
+      "port": 443
+    },
+    "elapsed": "0s"
+  }
+}

@@ -5,11 +5,17 @@ package gio.measurement.v1;
 import "gio/common/v1/network.proto";
 import "google/protobuf/duration.proto";
 
-// TcpConnectResult describes a completed TCP connection attempt.
+// TcpConnectResult describes successful TCP connection establishment.
+// Refused, reset-before-establishment, or timed-out attempts use envelope errors
+// without this result. Do not synthesize an elapsed time or endpoint on failure.
 message TcpConnectResult {
+  // Actual connected peer, after any name resolution; required.
   gio.common.v1.NetworkEndpoint remote_endpoint = 1;
+  // Actual local socket endpoint, if observable and collection policy permits.
+  // It may be a private address and is not the externally observed NAT address.
   optional gio.common.v1.NetworkEndpoint local_endpoint = 2;
 
-  // Time from starting the connection attempt until the connection was established.
+  // Required non-negative time from connect attempt to establishment, excluding
+  // prerequisite DNS resolution. Zero is valid at the producer's clock resolution.
   google.protobuf.Duration elapsed = 3;
 }

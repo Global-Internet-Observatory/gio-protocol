@@ -1,0 +1,36 @@
+{
+  "measurementId": "uncaptured_body_with_bytes",
+  "kind": "MEASUREMENT_KIND_HTTP",
+  "startedAt": "2026-09-10T10:00:00Z",
+  "finishedAt": "2026-09-10T10:00:00.100Z",
+  "probe": {
+    "probeId": "probe-example"
+  },
+  "target": {
+    "url": "http://example.com/start"
+  },
+  "status": "EXECUTION_STATUS_SUCCEEDED",
+  "httpResult": {
+    "method": "GET",
+    "finalUrl": "https://example.com/final",
+    "statusCode": 200,
+    "responseHeaders": [
+      {
+        "name": "content-type",
+        "value": "dGV4dC9wbGFpbg=="
+      },
+      {
+        "name": "set-cookie",
+        "value": "YT0x"
+      },
+      {
+        "name": "set-cookie",
+        "value": "Yj0y"
+      }
+    ],
+    "body": "aGVsbG8=",
+    "elapsed": "0.100s",
+    "bodyCapture": "HTTP_BODY_CAPTURE_NOT_CAPTURED",
+    "bodySize": "5"
+  }
+}

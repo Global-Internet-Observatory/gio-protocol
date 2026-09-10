@@ -1,0 +1,19 @@
+{
+  "measurementId": "partial_without_result",
+  "kind": "MEASUREMENT_KIND_TCP_CONNECT",
+  "startedAt": "2026-09-10T10:00:00Z",
+  "finishedAt": "2026-09-10T10:00:00Z",
+  "probe": {
+    "probeId": "probe-example"
+  },
+  "target": {
+    "hostname": "example.com",
+    "port": 443
+  },
+  "status": "EXECUTION_STATUS_PARTIAL",
+  "errors": [
+    {
+      "code": "MEASUREMENT_ERROR_CODE_TIMEOUT"
+    }
+  ]
+}

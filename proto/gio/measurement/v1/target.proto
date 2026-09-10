@@ -7,9 +7,11 @@ import "gio/common/v1/network.proto";
 // Target records the destination requested for a measurement.
 //
 // At least one of hostname, ip_address, or url must be present. Multiple fields
-// may be present when they describe different representations of the same target.
+// may be present when they describe the same requested target. Results record
+// observed endpoints separately; a redirect or resolution must not rewrite this.
 message Target {
-  // Hostname as supplied for the measurement, without a trailing root dot.
+  // Non-empty hostname as supplied, without a trailing root dot. Case is
+  // preserved; consumers must not treat spelling as a globally unique identity.
   optional string hostname = 1;
 
   // Selected destination address, when known before execution.
@@ -18,6 +20,7 @@ message Target {
   // Destination transport port in the inclusive range 1 through 65535.
   optional uint32 port = 3;
 
-  // Absolute URL as supplied for an application-layer measurement.
+  // Absolute URL with an authority, as supplied for an application measurement.
+  // Paths and queries are preserved and may be sensitive.
   optional string url = 4;
 }

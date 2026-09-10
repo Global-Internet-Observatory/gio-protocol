@@ -1,0 +1,23 @@
+{
+  "measurementId": "fixture-empty-http",
+  "kind": "MEASUREMENT_KIND_HTTP",
+  "startedAt": "2026-09-10T10:00:00Z",
+  "finishedAt": "2026-09-10T10:00:00.100Z",
+  "probe": {
+    "probeId": "probe-example"
+  },
+  "target": {
+    "url": "http://example.com/start"
+  },
+  "status": "EXECUTION_STATUS_SUCCEEDED",
+  "httpResult": {
+    "method": "GET",
+    "finalUrl": "https://example.com/final",
+    "statusCode": 204,
+    "responseHeaders": [],
+    "body": "",
+    "elapsed": "0.100s",
+    "bodyCapture": "HTTP_BODY_CAPTURE_COMPLETE",
+    "bodySize": "0"
+  }
+}

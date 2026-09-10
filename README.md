@@ -67,6 +67,11 @@ Types shared outside the measurement domain, such as IP endpoints and probe or
 network context, live in `gio.common.v1`. Measurement targets and result payloads
 remain in `gio.measurement.v1`. The schemas define no RPC services.
 
+The [Measurement v1 contract](proto/gio/measurement/v1/README.md) explains terminal
+statuses, partial observations, target versus observed endpoints, timing, privacy,
+and forward compatibility. HTTP results distinguish complete, truncated, and
+intentionally uncaptured bodies; omitted capture metadata means unknown.
+
 ## Design principles
 
 Protocol development follows a few core principles:
@@ -103,7 +108,7 @@ Package versions are protocol API major versions. They are not the same thing as
 
 ## Development prerequisites
 
-Install [Buf](https://buf.build/docs/installation/), Python 3, and GNU Make or a compatible `make` implementation. Python is used only by the repository-internal conformance harness and requires no third-party packages.
+Install [Buf](https://buf.build/docs/installation/) (CI uses 1.72.0), Python 3.8 or newer, and GNU Make or a compatible `make` implementation. Python is used only by the repository-internal conformance harness and requires no third-party packages.
 
 No `protoc`, Rust, Node.js, SDK toolchain, Docker runtime, or Buf Schema Registry account is required. The harness uses Buf's dynamic message conversion and does not generate or commit bindings.
 
@@ -167,12 +172,18 @@ make check         # Run the complete validation suite
 establishes the first compatibility baseline; after it reaches `main`, breaking
 checks protect every subsequent schema change. A checkout whose target branch
 still has no `.proto` files reports that the baseline check was skipped.
+An unresolvable baseline fails instead of skipping. Use
+`make breaking BREAKING_BASE=<commit-or-ref>` to compare an exact target; fetch
+the target branch first when checking against a newer revision of `main`.
 
 The harness validates readable protobuf-JSON fixtures by encoding and decoding
 them through the real schema, then applies the small set of semantic invariants
 that Buf cannot express, including timestamp ordering and status/error/result
 relationships. See [harness/README.md](harness/README.md) for its deliberately
 limited scope. Harness code is repository-internal and is not a supported API.
+Binary tests cover unknown fields, unknown enum numbers, optional presence, and
+`oneof` decoding. Unknown future semantics are distinguished from malformed wire
+data and from violations of known GIO rules.
 
 ### 5. Open a focused pull request
 
@@ -184,7 +195,9 @@ A protocol PR should explain the **semantic contract**, not only the syntax chan
 - whether persisted historical measurements retain their original meaning;
 - why the change belongs in the shared protocol rather than one implementation.
 
-CI verifies formatting, linting, schema compilation, and, once a baseline exists, breaking compatibility against the target branch.
+CI verifies formatting, linting, schema compilation, breaking compatibility
+against the exact PR base commit, and conformance tests. Documentation-only
+changes skip protocol jobs while the stable `CI gate` still reports a result.
 
 ### 6. Update consumers explicitly
 
