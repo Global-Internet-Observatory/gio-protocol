@@ -1,7 +1,9 @@
 BUF ?= buf
+PYTHON ?= python3
+BREAKING_BASE ?= main
 PROTO_FILES := $(shell find proto -type f -name '*.proto' -print -quit 2>/dev/null)
 
-.PHONY: format format-check lint build breaking check require-schema
+.PHONY: format format-check lint build breaking test check require-schema
 
 require-schema:
 	@if [ -z "$(PROTO_FILES)" ]; then \
@@ -22,6 +24,16 @@ build:
 	@if [ -z "$(PROTO_FILES)" ]; then echo 'No .proto files yet; build skipped.'; else $(BUF) build; fi
 
 breaking:
-	@if [ -z "$(PROTO_FILES)" ]; then echo 'No .proto files yet; breaking check skipped.'; else $(BUF) breaking --against '.git#branch=main'; fi
+	@if [ -z "$(PROTO_FILES)" ]; then \
+		echo 'No .proto files yet; breaking check skipped.'; \
+	elif ! git rev-parse --verify '$(BREAKING_BASE)^{commit}' >/dev/null 2>&1 || \
+		! git ls-tree -r --name-only '$(BREAKING_BASE)' -- proto | grep -q '\.proto$$'; then \
+		echo 'The breaking-change baseline has no .proto files; check skipped.'; \
+	else \
+		$(BUF) breaking --against '.git#ref=$(BREAKING_BASE)'; \
+	fi
 
-check: format-check lint build breaking
+test:
+	@BUF='$(BUF)' $(PYTHON) harness/test_conformance.py
+
+check: format-check lint build breaking test

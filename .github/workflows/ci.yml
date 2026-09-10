@@ -53,7 +53,7 @@ jobs:
           schema_relevant=false
           while IFS= read -r file; do
             case "$file" in
-              proto/*.proto|buf.yaml|buf.lock|Makefile|scripts/*|.github/workflows/ci.yml)
+              proto/*.proto|harness/*|buf.yaml|buf.lock|Makefile|scripts/*|.github/workflows/ci.yml)
                 schema_relevant=true
                 break
                 ;;
@@ -127,11 +127,37 @@ jobs:
         if: github.event_name == 'pull_request' && steps.schema.outputs.present == 'true' && steps.base-schema.outputs.present == 'true'
         run: buf breaking --against '.git#ref=${{ github.event.pull_request.base.sha }}'
 
+  harness:
+    name: Harness tests
+    needs:
+      - changes
+      - buf
+    if: needs.changes.outputs.schema-relevant == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Buf
+        uses: bufbuild/buf-action@8c6a16e16f12ba20b6470afa9c2ba9b5ba8c97c3 # v1
+        with:
+          version: '1.72.0'
+          setup_only: true
+
+      - name: Run protocol conformance harness
+        run: make test
+
   ci:
     name: CI gate
     needs:
       - changes
       - buf
+      - harness
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -149,6 +175,11 @@ jobs:
 
           if [[ '${{ needs.changes.outputs.schema-relevant }}' == 'true' && '${{ needs.buf.result }}' != 'success' ]]; then
             echo 'Buf checks were required but did not succeed.' >&2
+            exit 1
+          fi
+
+          if [[ '${{ needs.changes.outputs.schema-relevant }}' == 'true' && '${{ needs.harness.result }}' != 'success' ]]; then
+            echo 'Harness tests were required but did not succeed.' >&2
             exit 1
           fi
 

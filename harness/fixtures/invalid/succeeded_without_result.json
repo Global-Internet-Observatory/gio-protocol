@@ -1,0 +1,13 @@
+{
+  "measurementId": "invalid-missing-result",
+  "kind": "MEASUREMENT_KIND_DNS",
+  "startedAt": "2026-09-10T10:00:00Z",
+  "finishedAt": "2026-09-10T10:00:01Z",
+  "probe": {
+    "probeId": "probe-tokyo-1"
+  },
+  "target": {
+    "hostname": "example.com"
+  },
+  "status": "EXECUTION_STATUS_SUCCEEDED"
+}

@@ -1,0 +1,28 @@
+{
+  "measurementId": "invalid-failed-result",
+  "kind": "MEASUREMENT_KIND_TCP_CONNECT",
+  "startedAt": "2026-09-10T10:00:00Z",
+  "finishedAt": "2026-09-10T10:00:01Z",
+  "probe": {
+    "probeId": "probe-tokyo-1"
+  },
+  "target": {
+    "hostname": "example.com",
+    "port": 443
+  },
+  "status": "EXECUTION_STATUS_FAILED",
+  "errors": [
+    {
+      "code": "MEASUREMENT_ERROR_CODE_CONNECTION_REFUSED"
+    }
+  ],
+  "tcpConnectResult": {
+    "remoteEndpoint": {
+      "ipAddress": {
+        "address": "wAACAQ=="
+      },
+      "port": 443
+    },
+    "elapsed": "0.001s"
+  }
+}
