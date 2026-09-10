@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  buf:
+    name: Buf checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install Buf
+        uses: bufbuild/buf-action@v1
+        with:
+          setup_only: true
+
+      - name: Detect schema files
+        id: schema
+        shell: bash
+        run: |
+          if find proto -type f -name '*.proto' -print -quit | grep -q .; then
+            echo 'present=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'present=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Detect base schema files
+        if: github.event_name == 'pull_request'
+        id: base-schema
+        shell: bash
+        run: |
+          base_ref='${{ github.event.pull_request.base.ref }}'
+          if git ls-tree -r --name-only "origin/${base_ref}" -- proto | grep -q '\.proto$'; then
+            echo 'present=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'present=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bootstrap state
+        if: steps.schema.outputs.present != 'true'
+        run: echo 'No .proto files yet; schema checks are intentionally skipped.'
+
+      - name: Check formatting
+        if: steps.schema.outputs.present == 'true'
+        run: buf format --diff --exit-code
+
+      - name: Lint
+        if: steps.schema.outputs.present == 'true'
+        run: buf lint
+
+      - name: Build schema
+        if: steps.schema.outputs.present == 'true'
+        run: buf build
+
+      - name: No breaking baseline yet
+        if: github.event_name == 'pull_request' && steps.schema.outputs.present == 'true' && steps.base-schema.outputs.present != 'true'
+        run: echo 'The base branch has no .proto files yet; breaking-change checks start after the first schema lands.'
+
+      - name: Check breaking changes
+        if: github.event_name == 'pull_request' && steps.schema.outputs.present == 'true' && steps.base-schema.outputs.present == 'true'
+        run: buf breaking --against '.git#branch=${{ github.event.pull_request.base.ref }}'
