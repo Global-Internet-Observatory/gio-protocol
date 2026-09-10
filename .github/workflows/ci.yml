@@ -14,10 +14,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  buf:
-    name: Buf checks
+  changes:
+    name: Changes
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
+    outputs:
+      schema-relevant: ${{ steps.classify.outputs.schema-relevant }}
 
     steps:
       - name: Check out repository
@@ -26,8 +28,8 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Detect schema-relevant changes
-        id: changes
+      - name: Classify changes
+        id: classify
         shell: bash
         run: |
           set -euo pipefail
@@ -48,24 +50,33 @@ jobs:
 
           printf '%s\n' "$changed_files"
 
-          relevant=false
+          schema_relevant=false
           while IFS= read -r file; do
             case "$file" in
               proto/*.proto|buf.yaml|buf.lock|Makefile|scripts/*|.github/workflows/ci.yml)
-                relevant=true
+                schema_relevant=true
                 break
                 ;;
             esac
           done <<< "$changed_files"
 
-          echo "relevant=$relevant" >> "$GITHUB_OUTPUT"
+          echo "schema-relevant=$schema_relevant" >> "$GITHUB_OUTPUT"
 
-      - name: Documentation-only change
-        if: steps.changes.outputs.relevant != 'true'
-        run: echo 'No schema or schema-tooling changes detected; Buf checks are skipped.'
+  buf:
+    name: Buf checks
+    needs: changes
+    if: needs.changes.outputs.schema-relevant == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Detect schema files
-        if: steps.changes.outputs.relevant == 'true'
         id: schema
         shell: bash
         run: |
@@ -76,14 +87,13 @@ jobs:
           fi
 
       - name: Install Buf
-        if: steps.changes.outputs.relevant == 'true'
         uses: bufbuild/buf-action@8c6a16e16f12ba20b6470afa9c2ba9b5ba8c97c3 # v1
         with:
           version: '1.72.0'
           setup_only: true
 
       - name: Detect base schema files
-        if: github.event_name == 'pull_request' && steps.changes.outputs.relevant == 'true' && steps.schema.outputs.present == 'true'
+        if: github.event_name == 'pull_request' && steps.schema.outputs.present == 'true'
         id: base-schema
         shell: bash
         run: |
@@ -94,25 +104,52 @@ jobs:
           fi
 
       - name: Bootstrap state
-        if: steps.changes.outputs.relevant == 'true' && steps.schema.outputs.present != 'true'
+        if: steps.schema.outputs.present != 'true'
         run: echo 'No .proto files yet; schema checks are intentionally skipped.'
 
       - name: Check formatting
-        if: steps.changes.outputs.relevant == 'true' && steps.schema.outputs.present == 'true'
+        if: steps.schema.outputs.present == 'true'
         run: buf format --diff --exit-code
 
       - name: Lint
-        if: steps.changes.outputs.relevant == 'true' && steps.schema.outputs.present == 'true'
+        if: steps.schema.outputs.present == 'true'
         run: buf lint
 
       - name: Build schema
-        if: steps.changes.outputs.relevant == 'true' && steps.schema.outputs.present == 'true'
+        if: steps.schema.outputs.present == 'true'
         run: buf build
 
       - name: No breaking baseline yet
-        if: github.event_name == 'pull_request' && steps.changes.outputs.relevant == 'true' && steps.schema.outputs.present == 'true' && steps.base-schema.outputs.present != 'true'
+        if: github.event_name == 'pull_request' && steps.schema.outputs.present == 'true' && steps.base-schema.outputs.present != 'true'
         run: echo 'The base commit has no .proto files yet; breaking-change checks start after the first schema lands.'
 
       - name: Check breaking changes
-        if: github.event_name == 'pull_request' && steps.changes.outputs.relevant == 'true' && steps.schema.outputs.present == 'true' && steps.base-schema.outputs.present == 'true'
+        if: github.event_name == 'pull_request' && steps.schema.outputs.present == 'true' && steps.base-schema.outputs.present == 'true'
         run: buf breaking --against '.git#ref=${{ github.event.pull_request.base.sha }}'
+
+  ci:
+    name: CI gate
+    needs:
+      - changes
+      - buf
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Verify required checks
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ '${{ needs.changes.result }}' != 'success' ]]; then
+            echo 'Change classification failed.' >&2
+            exit 1
+          fi
+
+          if [[ '${{ needs.changes.outputs.schema-relevant }}' == 'true' && '${{ needs.buf.result }}' != 'success' ]]; then
+            echo 'Buf checks were required but did not succeed.' >&2
+            exit 1
+          fi
+
+          echo 'CI requirements satisfied.'
