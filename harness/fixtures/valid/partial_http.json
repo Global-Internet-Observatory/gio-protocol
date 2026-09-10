@@ -1,0 +1,40 @@
+{
+  "measurementId": "fixture-partial-http",
+  "kind": "MEASUREMENT_KIND_HTTP",
+  "startedAt": "2026-09-10T10:00:00Z",
+  "finishedAt": "2026-09-10T10:00:00.100Z",
+  "probe": {
+    "probeId": "probe-example"
+  },
+  "target": {
+    "url": "http://example.com/start"
+  },
+  "status": "EXECUTION_STATUS_PARTIAL",
+  "httpResult": {
+    "method": "GET",
+    "finalUrl": "https://example.com/final",
+    "statusCode": 200,
+    "responseHeaders": [
+      {
+        "name": "content-type",
+        "value": "dGV4dC9wbGFpbg=="
+      },
+      {
+        "name": "set-cookie",
+        "value": "YT0x"
+      },
+      {
+        "name": "set-cookie",
+        "value": "Yj0y"
+      }
+    ],
+    "body": "aGU=",
+    "bodyCapture": "HTTP_BODY_CAPTURE_TRUNCATED"
+  },
+  "errors": [
+    {
+      "code": "MEASUREMENT_ERROR_CODE_CONNECTION_RESET",
+      "detail": "Response stream reset after two body bytes"
+    }
+  ]
+}

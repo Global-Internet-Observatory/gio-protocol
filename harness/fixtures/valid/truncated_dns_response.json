@@ -1,0 +1,17 @@
+{
+  "measurementId": "fixture-dns-tc",
+  "kind": "MEASUREMENT_KIND_DNS",
+  "startedAt": "2026-09-10T10:00:00Z",
+  "finishedAt": "2026-09-10T10:00:00.005Z",
+  "probe": {"probeId": "probe-example"},
+  "target": {"hostname": "example.com"},
+  "status": "EXECUTION_STATUS_SUCCEEDED",
+  "dnsResult": {
+    "queryName": "example.com",
+    "queryType": 1,
+    "responseCode": 0,
+    "transport": "DNS_TRANSPORT_UDP",
+    "elapsed": "0.005s",
+    "responseTruncated": true
+  }
+}

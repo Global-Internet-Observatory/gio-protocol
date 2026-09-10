@@ -1,0 +1,20 @@
+{
+  "measurementId": "empty_target",
+  "kind": "MEASUREMENT_KIND_TCP_CONNECT",
+  "startedAt": "2026-09-10T10:00:00Z",
+  "finishedAt": "2026-09-10T10:00:00Z",
+  "probe": {
+    "probeId": "probe-example"
+  },
+  "target": {},
+  "status": "EXECUTION_STATUS_SUCCEEDED",
+  "tcpConnectResult": {
+    "remoteEndpoint": {
+      "ipAddress": {
+        "address": "wAACAQ=="
+      },
+      "port": 443
+    },
+    "elapsed": "0s"
+  }
+}

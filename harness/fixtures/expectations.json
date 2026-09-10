@@ -1,0 +1,21 @@
+{
+  "failed_with_result.json": "status_result",
+  "finished_before_started.json": "timestamp_order",
+  "succeeded_without_result.json": "status_result",
+  "succeeded_with_errors.json": "status_result",
+  "failed_without_errors.json": "status_result",
+  "partial_without_result.json": "status_result",
+  "partial_without_errors.json": "status_result",
+  "kind_result_mismatch.json": "kind_result",
+  "unspecified_status.json": "unspecified_enum",
+  "unspecified_kind.json": "unspecified_enum",
+  "invalid_ip_length.json": "ip_length",
+  "invalid_endpoint_port.json": "endpoint_port",
+  "empty_target.json": "target",
+  "invalid_country_code.json": "country_code",
+  "nanosecond_time_order.json": "timestamp_order",
+  "unspecified_error.json": "unspecified_enum",
+  "negative_elapsed.json": "duration",
+  "inconsistent_body_size.json": "http_body_size",
+  "uncaptured_body_with_bytes.json": "http_body_capture"
+}
