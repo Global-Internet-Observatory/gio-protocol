@@ -7,6 +7,10 @@ major versions in protobuf package names.
 
 ## Unreleased
 
+No changes yet.
+
+## 0.1.1 — 2026-09-11
+
 - Relax the Measurement v1 HTTP response-header contract without changing the
   protobuf schema or wire representation: duplicate values remain separate
   entries, while header-name casing and cross-name ordering are not semantic.
