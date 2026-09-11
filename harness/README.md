@@ -45,6 +45,13 @@ includes all terminal-state combinations, mismatched kind/result, unspecified
 enums, IP length, port range, empty target, country-code shape, nanosecond time
 ordering, negative durations, and inconsistent HTTP capture metadata.
 
+The wire cases also verify that duplicate HTTP header entries survive round trips
+and that equivalent responses with different ordering across header names are
+both semantically valid. The harness does not normalize or sort the repeated
+header list. The generic protobuf round-trip check preserves repeated-field
+sequence for wire correctness; it does not make that sequence an HTTP semantic
+requirement.
+
 Every fixture encodes to binary, decodes, re-encodes, and compares decoded meaning.
 The invalid fixture's decode/round-trip is outside the expected-error handler:
 an unrelated parsing error or wrong invariant cannot make it pass. Equivalent

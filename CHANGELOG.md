@@ -7,7 +7,12 @@ major versions in protobuf package names.
 
 ## Unreleased
 
-No changes yet.
+- Relax the Measurement v1 HTTP response-header contract without changing the
+  protobuf schema or wire representation: duplicate values remain separate
+  entries, while header-name casing and cross-name ordering are not semantic.
+  Existing serialized messages remain valid; producers no longer need to retain
+  HTTP wire order and consumers must not depend on it. Exact raw HTTP transcript
+  capture remains deferred to a future specialized measurement.
 
 ## 0.1.0 — 2026-09-10
 

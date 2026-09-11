@@ -145,6 +145,47 @@ def run_wire_tests(codec, fixtures, validate, expect_error, unsupported, wire_er
     validate(codec.round_trip(fallback))
     cases += 1
 
+    # HTTP duplicate values remain separate entries, but cross-name ordering is
+    # not a semantic invariant. Both permutations must remain valid without a
+    # sorting or normalization requirement in the harness.
+    headers = [
+        {"name": "X-A", "value": "MQ=="},
+        {"name": "X-B", "value": "Mg=="},
+        {"name": "Set-Cookie", "value": "YT0x"},
+        {"name": "Set-Cookie", "value": "Yj0y"},
+    ]
+    reordered_headers = [headers[2], headers[1], headers[0], headers[3]]
+
+    def header_value_counts(value):
+        counts = {}
+        for header in value["httpResult"]["responseHeaders"]:
+            key = (header["name"].lower(), header["value"])
+            counts[key] = counts.get(key, 0) + 1
+        return counts
+
+    expected_headers = {
+        ("x-a", "MQ=="): 1,
+        ("x-b", "Mg=="): 1,
+        ("set-cookie", "YT0x"): 1,
+        ("set-cookie", "Yj0y"): 1,
+    }
+    for candidate_headers in (headers, reordered_headers):
+        candidate = deepcopy(http)
+        candidate["httpResult"]["responseHeaders"] = candidate_headers
+        decoded = codec.round_trip(candidate)
+        validate(decoded)
+        check(header_value_counts(decoded) == expected_headers,
+              "duplicate HTTP header values were merged, omitted, or changed")
+    cases += 1
+
+    # Header names remain subject to the HTTP token/non-empty semantic checks;
+    # header ordering is the only behavior relaxed by this change.
+    for name, rule in (("", "required_value"), ("invalid header", "http_header")):
+        candidate = deepcopy(http)
+        candidate["httpResult"]["responseHeaders"] = [{"name": name, "value": "MQ=="}]
+        expect_error(codec.round_trip(candidate), rule)
+        cases += 1
+
     # Deliberately concatenate separately encoded result fields. This tests binary
     # oneof parsing, not JSON's refusal to accept two members at once.
     envelope = {k: v for k, v in tcp.items() if k != "tcpConnectResult"}

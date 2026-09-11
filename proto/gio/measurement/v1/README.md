@@ -151,11 +151,21 @@ it must be larger when known. Captured length is already derivable, so there is
 no redundant `captured_body_size`. An explicitly present size of zero differs
 from an absent size.
 
-Only the final response is represented. Duplicate header fields and their
-received order are preserved; do not combine Set-Cookie values or sort fields.
-Header name casing is not canonical. Redirect history, interim responses,
-trailers, and raw packet capture are outside this result. No redirect-following
-policy is mandated.
+Only the final response is represented. Duplicate header values are preserved
+as separate `HttpHeader` entries; do not combine or omit repeated values such as
+`Set-Cookie`. Header field name casing is not canonical.
+
+The relative ordering of response headers with different field names is not
+semantically significant. Producers are not required to preserve the order in
+which fields appeared on the HTTP wire, and consumers MUST NOT depend on the
+ordering of `response_headers` across different field names. Producers do not
+need to sort entries by name. The repeated field is not a raw HTTP transcript.
+
+Exact raw header bytes, wire ordering, transfer framing, chunk boundaries, and
+other transcript details are outside Measurement v1. Redirect history, interim
+responses, and trailers are also outside this result. A future wire-level HTTP
+fingerprinting measurement would require a dedicated result or transcript type.
+No redirect-following policy is mandated.
 
 ## DNS and TLS boundaries
 
