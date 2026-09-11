@@ -12,7 +12,9 @@ major versions in protobuf package names.
   entries, while header-name casing and cross-name ordering are not semantic.
   Existing serialized messages remain valid; producers no longer need to retain
   HTTP wire order and consumers must not depend on it. Exact raw HTTP transcript
-  capture remains deferred to a future specialized measurement.
+  capture remains deferred to a future specialized measurement. This is an
+  explicit, limited pre-production compatibility exception, not a general
+  relaxation of the semantic compatibility policy.
 
 ## 0.1.0 — 2026-09-10
 
