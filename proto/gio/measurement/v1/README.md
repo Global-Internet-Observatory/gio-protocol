@@ -151,11 +151,14 @@ it must be larger when known. Captured length is already derivable, so there is
 no redundant `captured_body_size`. An explicitly present size of zero differs
 from an absent size.
 
-Only the final response is represented. Duplicate header fields and their
-received order are preserved; do not combine Set-Cookie values or sort fields.
-Header name casing is not canonical. Redirect history, interim responses,
-trailers, and raw packet capture are outside this result. No redirect-following
-policy is mandated.
+Only the final response is represented. Duplicate HTTP header field values are
+preserved as separate entries; do not combine Set-Cookie values. Header field
+name casing is not canonical. The relative ordering of different header field
+names is not semantically significant and consumers MUST NOT rely on
+cross-header wire-order preservation. Producers may retain the order supplied
+by their HTTP library, but that order is not a protocol guarantee. Redirect
+history, interim responses, trailers, and raw packet capture are outside this
+result. No redirect-following policy is mandated.
 
 ## DNS and TLS boundaries
 

@@ -43,8 +43,10 @@ message HttpResult {
   // HTTP response status code in the inclusive range 100 through 599.
   uint32 status_code = 3;
 
-  // Final response header fields in received order, including duplicates.
-  // Excludes interim responses, trailers, and HTTP/2 pseudo-headers.
+  // Final response header fields, including duplicate values as separate
+  // entries. Cross-name wire ordering is not semantically significant and
+  // consumers MUST NOT rely on iteration order. Excludes interim responses,
+  // trailers, and HTTP/2 pseudo-headers.
   repeated HttpHeader response_headers = 4;
 
   // Retained response body bytes after removal of HTTP transfer framing/codings.

@@ -7,7 +7,8 @@ major versions in protobuf package names.
 
 ## Unreleased
 
-No changes yet.
+- Clarify that duplicate HTTP header values remain separate entries while
+  cross-header wire ordering is not a Measurement v1 semantic guarantee.
 
 ## 0.1.0 — 2026-09-10
 
