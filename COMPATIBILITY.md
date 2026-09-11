@@ -80,3 +80,28 @@ Conversion through JSON or rebuilding from known fields can discard unknown
 fields. The harness demonstrates Buf's behavior, not a guarantee for every
 consumer implementation. See the [Measurement v1 contract](proto/gio/measurement/v1/README.md)
 for the cross-message rules and the recorded pre-release clarifications.
+
+### Measurement v1 HTTP header ordering correction
+
+This correction is an explicit, limited pre-production exception to the
+semantic compatibility rule above. The `v0.1.0` tag is an existing repository
+release whose source contract documented cross-name HTTP response-header wire
+ordering before GIO established production compatibility obligations around
+this behavior. PR #8 intentionally relaxes that producer requirement while
+retaining the same protobuf schema and wire representation.
+
+The `response_headers` field remains a repeated `HttpHeader` field with the
+same field number and wire representation. Duplicate values remain separate
+entries. As a pre-production semantic correction, Measurement v1 does not
+require producers to preserve the relative wire order of entries with different
+header names, and consumers must not depend on that ordering. Existing
+serialized messages remain valid and readable; this change relaxes a producer
+obligation without changing protobuf compatibility. Exact raw HTTP header bytes,
+framing, and transcript ordering remain outside this result.
+
+This exception does not establish a general precedent for redefining published
+Measurement v1 semantics. After the pre-production contract is stabilized,
+material changes to the meaning or interpretation of existing fields remain
+subject to the normal semantic compatibility rules above and may require a new
+protocol API major version. The general rule against silently redefining
+published field semantics remains in force.

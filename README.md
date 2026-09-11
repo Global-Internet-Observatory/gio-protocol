@@ -81,6 +81,9 @@ Protocol development follows a few core principles:
 3. **Semantics matter as much as wire compatibility.** A change that still parses but changes the meaning of an existing field is a breaking protocol change.
 4. **Measurements must remain interpretable over time.** GIO may retain measurements longer than the lifetime of the software that produced them, so historical data must not depend on transient implementation details.
 5. **Protocol surface area stays small.** A type belongs here only when independent GIO components need to agree on it.
+   Protocol semantics should avoid forcing every producer to preserve low-level
+   transport or application wire details unless the observable has material
+   measurement value.
 
 The enforceable compatibility policy is documented in [COMPATIBILITY.md](COMPATIBILITY.md).
 
