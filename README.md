@@ -72,6 +72,28 @@ statuses, partial observations, target versus observed endpoints, timing, privac
 and forward compatibility. HTTP results distinguish complete, truncated, and
 intentionally uncaptured bodies; omitted capture metadata means unknown.
 
+## Ingestion v1
+
+Ingestion v1 is the transfer and durability boundary for a future collector. A
+probe sends the exact serialized Measurement v1 bytes in an
+`gio.ingestion.v1.MeasurementUpload`, alongside the logical `measurement_id` and
+the SHA-256 of those exact bytes:
+
+```text
+Measurement v1 -> exact bytes -> ingestion request -> durable ownership -> ACK
+```
+
+Only an acknowledgement with a matching ID, matching 32-byte SHA-256, and
+`STORED` or `ALREADY_STORED` permits a probe to remove its local copy. Delivery
+is at-least-once; duplicate submissions are normal, server deduplication is
+required, and global ordering is not promised. `RETRY` and `REJECTED` never
+authorize deletion, and `REJECTED` must not cause silent data loss. The
+[Ingestion v1 contract](proto/gio/ingestion/v1/README.md) and its
+[HTTP transport profile](proto/gio/ingestion/v1/HTTP.md) define these rules.
+
+Authentication, collector implementation, production ingestion, scheduling,
+registration, and control-plane messages remain deferred.
+
 ## Design principles
 
 Protocol development follows a few core principles:

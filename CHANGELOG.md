@@ -7,7 +7,10 @@ major versions in protobuf package names.
 
 ## Unreleased
 
-No changes yet.
+- Define `gio.ingestion.v1` exact-byte Measurement uploads, per-record durable
+  acknowledgement statuses, idempotency binding, and the initial protobuf HTTP
+  transport profile. The package is protocol-only: collector implementation,
+  authentication, scheduling, and control-plane messages remain deferred.
 
 ## 0.1.1 — 2026-09-11
 

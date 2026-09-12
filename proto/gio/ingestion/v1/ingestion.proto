@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+package gio.ingestion.v1;
+
+// IngestionStatus is the per-record outcome of a submission attempt.
+enum IngestionStatus {
+  // A response with this value is invalid and must not authorize deletion.
+  INGESTION_STATUS_UNSPECIFIED = 0;
+
+  // The exact payload has newly crossed the collector's durable ownership
+  // boundary. Volatile queueing alone is not sufficient for STORED.
+  INGESTION_STATUS_STORED = 1;
+
+  // The collector already durably owns this ID bound to these exact bytes.
+  // This has the same probe-side deletion meaning as STORED.
+  INGESTION_STATUS_ALREADY_STORED = 2;
+
+  // The record was not durably accepted. Retrying later may succeed.
+  // Retry timing and backoff are transport or implementation policy.
+  INGESTION_STATUS_RETRY = 3;
+
+  // The record was not durably accepted. Retrying identical bytes is not useful.
+  // A probe must preserve the record for operator-visible handling.
+  INGESTION_STATUS_REJECTED = 4;
+}
+
+// MeasurementUpload transports the exact serialized Measurement v1 bytes.
+//
+// measurement_bytes is not a nested Measurement message: forwarding opaque
+// protobuf bytes preserves unknown fields and their original wire encoding.
+// Receivers decode and semantically validate those bytes before accepting them.
+message MeasurementUpload {
+  // Must be non-empty and equal to the decoded Measurement.measurement_id.
+  string measurement_id = 1;
+
+  // Exact serialized gio.measurement.v1.Measurement protobuf bytes.
+  bytes measurement_bytes = 2;
+
+  // Exactly 32 SHA-256 bytes computed over measurement_bytes, byte for byte.
+  bytes payload_sha256 = 3;
+}
+
+// SubmitMeasurementsRequest contains one or more independently identifiable
+// records. IDs must be unique within one request; operational batch limits are
+// imposed by the transport or server rather than this schema.
+message SubmitMeasurementsRequest {
+  repeated MeasurementUpload measurements = 1;
+}
+
+// MeasurementAck is the only per-record result that can authorize local removal.
+message MeasurementAck {
+  // Must identify one submitted record exactly.
+  string measurement_id = 1;
+
+  // Must equal the submitted record's 32-byte payload_sha256.
+  bytes payload_sha256 = 2;
+
+  // UNSPECIFIED is invalid in a valid application response.
+  IngestionStatus status = 3;
+
+  // Optional diagnostic detail. It has no stable machine-readable syntax.
+  optional string detail = 4;
+}
+
+// SubmitMeasurementsResponse contains exactly one ordered acknowledgement for
+// each submitted record. Acknowledgement order correlates this response with
+// the request; it does not promise global ingestion or delivery ordering.
+message SubmitMeasurementsResponse {
+  repeated MeasurementAck acknowledgements = 1;
+}

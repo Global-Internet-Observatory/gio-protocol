@@ -271,9 +271,10 @@ def load_json(path):
 class BufCodec:
     """Dynamic conversion using temporary descriptors; no generated language APIs."""
 
-    def __init__(self, executable, directory):
+    def __init__(self, executable, directory, message_type=MESSAGE_TYPE):
         self.executable = executable
         self.directory = directory
+        self.message_type = message_type
         self.schema = directory / "schema.json"
         self.run("build", str(ROOT), "--as-file-descriptor-set", "--exclude-source-info",
                  "-o", str(self.schema))
@@ -286,7 +287,7 @@ class BufCodec:
         return process.stdout
 
     def convert(self, payload, source, destination, schema=None):
-        return self.run("convert", str(schema or self.schema), "--type", MESSAGE_TYPE,
+        return self.run("convert", str(schema or self.schema), "--type", self.message_type,
                         "--from", f"-#format={source}", "--to", f"-#format={destination}", payload=payload)
 
     def encode(self, value, schema=None):
@@ -309,7 +310,7 @@ class BufCodec:
                     for child in item if isinstance(item, list) else [item]:
                         check_names(child, field["typeName"])
 
-        check_names(value, "." + MESSAGE_TYPE)
+        check_names(value, "." + self.message_type)
         return self.convert(json.dumps(value).encode(), "json", "binpb", schema)
 
     def decode(self, payload, schema=None):
@@ -357,7 +358,16 @@ def main():
                 raise AssertionError(f"{fixture.name}: {error}") from error
         wire_cases = run_wire_tests(codec, FIXTURES, validate_measurement,
                                     expect_semantic_error, UnsupportedSemantics, WireError)
-    print(f"Conformance passed: {len(valid)} valid, {len(invalid)} semantic-invalid fixtures; {wire_cases} wire cases")
+        from test_ingestion import run_ingestion_tests
+        ingestion_request = BufCodec(arguments.buf, Path(directory),
+                                     "gio.ingestion.v1.SubmitMeasurementsRequest")
+        ingestion_response = BufCodec(arguments.buf, Path(directory),
+                                      "gio.ingestion.v1.SubmitMeasurementsResponse")
+        ingestion_cases = run_ingestion_tests(
+            ingestion_request, ingestion_response, FIXTURES, codec
+        )
+    print(f"Conformance passed: {len(valid)} valid, {len(invalid)} semantic-invalid fixtures; "
+          f"{wire_cases} Measurement wire cases; {ingestion_cases} ingestion cases")
     return 0
 
 
