@@ -1,0 +1,25 @@
+{
+  "acknowledgements": [
+    {
+      "measurementId": "01J7GIO0000000000000000002",
+      "payloadSha256": "zWE1deRpdZA4b6j3JXKdj2AnDgNU6yB1GlUS9VKQO+c=",
+      "status": "INGESTION_STATUS_STORED"
+    },
+    {
+      "measurementId": "measurement-second",
+      "payloadSha256": "BD+56seOUEeX548+7vfii2hqmgZyskBp/8t1YsfNPRo=",
+      "status": "INGESTION_STATUS_ALREADY_STORED"
+    },
+    {
+      "measurementId": "measurement-third",
+      "payloadSha256": "f5SE7L5kpsEbmgrNpwyKbnPG064sZRECRpOsseiwNZ4=",
+      "status": "INGESTION_STATUS_RETRY"
+    },
+    {
+      "measurementId": "measurement-fourth",
+      "payloadSha256": "3aLyub+eFuXKMRoyJnPmgA/kfBlgZN+SQEfUxI4ufsA=",
+      "status": "INGESTION_STATUS_REJECTED",
+      "detail": "identity conflict"
+    }
+  ]
+}

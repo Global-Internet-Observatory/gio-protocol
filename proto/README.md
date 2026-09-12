@@ -7,7 +7,9 @@ Schemas are organized by protobuf package and API major version. Published packa
 The initial packages are:
 
 - `gio.common.v1` for shared probe and network context;
-- `gio.measurement.v1` for the measurement envelope, targets, and typed results.
+- `gio.measurement.v1` for the measurement envelope, targets, and typed results;
+- `gio.ingestion.v1` for exact-byte Measurement transfer and durable ownership
+  acknowledgements.
 
 All current files explicitly use Protocol Buffers v3 syntax. Adding a different
 syntax or edition requires a deliberate repository-wide compatibility review.
