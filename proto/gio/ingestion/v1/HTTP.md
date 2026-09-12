@@ -1,12 +1,14 @@
 # Ingestion v1 HTTP transport profile
 
-This is the normative initial transport for `gio.ingestion.v1`. It does not
-define a running service, server discovery, authentication, or authorization.
+This is the normative initial transport for `gio.ingestion.v1`. Production
+deletion-authorizing ingestion requires HTTPS with authenticated server TLS. It
+does not define a running service, server discovery, client authentication, or
+authorization.
 
 ## Request
 
 ```http
-POST /v1/measurements:ingest
+POST https://<configured-ingestion-origin>/v1/measurements:ingest
 Content-Type: application/x-protobuf
 Accept: application/x-protobuf
 
@@ -30,14 +32,41 @@ A 2xx response MUST include a decodable response body with the complete valid AC
 set specified by the [ingestion contract](README.md). A bodyless 204 is therefore
 not a valid application response. A client MUST validate the media type, protobuf
 body, ACK cardinality, uniqueness, IDs, digests, status values, and request order
-before acting on any ACK. Only matching `STORED`/`ALREADY_STORED` ACKs authorize
-removal. HTTP 2xx alone never does.
+before acting on any ACK. Only matching `STORED`/`ALREADY_STORED` ACKs received
+over the trusted transport described below authorize removal. HTTP 2xx alone
+never does.
+
+## Transport security
+
+Production ingestion endpoints MUST use HTTPS. Before any `STORED` or
+`ALREADY_STORED` acknowledgement can authorize deletion of a local durable
+record, the client MUST authenticate the server certificate or service identity
+according to its configured trust policy and MUST receive the response over
+that integrity-protected connection. Certificate verification and
+hostname/service-identity verification MUST NOT be disabled for production
+ingestion. Acknowledgements received over a transport whose server identity was
+not authenticated MUST NOT authorize deletion.
+
+Normal WebPKI/system trust, a configured private CA, or a future explicit GIO
+trust mechanism may satisfy this requirement. This profile does not prescribe a
+particular PKI deployment. A TLS handshake, certificate, or server-identity
+validation failure means there is no trusted acknowledgement; affected records
+remain pending.
+
+Plain HTTP MAY be used for loopback, deterministic local development, and
+non-production harnesses. It is not a production deletion-safe ownership proof:
+an acknowledgement received over unauthenticated plaintext HTTP MUST NOT
+authorize deletion. Production clients MUST NOT downgrade HTTPS to HTTP. Clients
+SHOULD NOT automatically follow ingestion redirects unless explicitly
+configured; any explicitly followed final destination MUST independently meet
+these HTTPS and server-authentication requirements.
 
 ## Failure handling
 
 | Condition | Required client behavior |
 | --- | --- |
 | Timeout or connection failure | No reliable ACK exists; retain all affected records. The collector may already own them, so retry with stable IDs and exact bytes. |
+| TLS handshake, certificate, or server-identity validation failure | No trusted ACK exists; retain all affected records and do not acknowledge locally. |
 | HTTP 429 or 5xx | Treat as retryable transport failure; retain records and do not acknowledge locally. |
 | HTTP 413 | Retain records; retry with smaller batches where possible. A single oversized record still requires preservation and operator-visible handling. |
 | 2xx with wrong/missing media type, missing body, or malformed protobuf | Treat as invalid/untrusted response; retain all affected records. |
@@ -55,6 +84,8 @@ Mixed `STORED`, `ALREADY_STORED`, `RETRY`, and `REJECTED` statuses belong in a v
 Retry timing/backoff and handling of optional HTTP retry hints are client policy.
 Redirects are not ingestion acknowledgements and MUST NOT authorize deletion.
 
-Authentication, TLS identity policy, credentials, and endpoint provisioning will
-be specified separately. This profile adds no token, key, registration, or
-control-plane fields to the protobuf contract.
+Client authentication, credentials, authorization policy, and endpoint
+provisioning will be specified separately. This profile adds no token, key,
+registration, or control-plane fields to the protobuf contract; its HTTPS
+server-authentication requirement is the transport precondition for
+deletion-authorizing ACKs.

@@ -47,7 +47,8 @@ message SubmitMeasurementsRequest {
   repeated MeasurementUpload measurements = 1;
 }
 
-// MeasurementAck is the only per-record result that can authorize local removal.
+// MeasurementAck is the per-record application result that can contribute to
+// local removal; the HTTP profile also requires authenticated server TLS.
 message MeasurementAck {
   // Must identify one submitted record exactly.
   string measurement_id = 1;

@@ -84,10 +84,12 @@ Measurement v1 -> exact bytes -> ingestion request -> durable ownership -> ACK
 ```
 
 Only an acknowledgement with a matching ID, matching 32-byte SHA-256, and
-`STORED` or `ALREADY_STORED` permits a probe to remove its local copy. Delivery
-is at-least-once; duplicate submissions are normal, server deduplication is
-required, and global ordering is not promised. `RETRY` and `REJECTED` never
-authorize deletion, and `REJECTED` must not cause silent data loss. The
+`STORED` or `ALREADY_STORED`, received over authenticated HTTPS server transport,
+permits a probe to remove its local copy. The digest binds the ACK to exact
+bytes; TLS authenticates its transport origin. Delivery is at-least-once;
+duplicate submissions are normal, server deduplication is required, and global
+ordering is not promised. `RETRY` and `REJECTED` never authorize deletion, and
+`REJECTED` must not cause silent data loss. The
 [Ingestion v1 contract](proto/gio/ingestion/v1/README.md) and its
 [HTTP transport profile](proto/gio/ingestion/v1/HTTP.md) define these rules.
 

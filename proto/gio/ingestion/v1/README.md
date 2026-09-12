@@ -71,10 +71,17 @@ bytes, ID mismatch, digest mismatch, or unsupported semantics, it MUST NOT retur
 `STORED`/`ALREADY_STORED`; it MAY return `REJECTED` echoing the submitted wrapper ID
 and 32-byte digest. The HTTP profile defines request-level failure handling.
 
-## Deletion-safe acknowledgements
+## Deletion-authorizing acknowledgements
 
-A probe MAY remove a pending record only after a valid application response and
-only when all three conditions hold:
+The application fields and the transport origin provide independent
+requirements. The digest binds an acknowledgement to exact bytes; it is not a
+MAC, signature, or server authenticator. For production ingestion, the response
+must also arrive over an authenticated, integrity-protected HTTPS connection
+whose server identity the client verified according to its configured trust
+policy. See the [HTTP transport security requirements](HTTP.md#transport-security).
+
+A probe MAY remove a pending record only after both requirements are satisfied
+and all of these application conditions hold:
 
 ```text
 ack.measurement_id == pending Measurement ID
@@ -82,9 +89,22 @@ AND ack.payload_sha256 == SHA256(exact pending bytes)
 AND ack.status IN {STORED, ALREADY_STORED}
 ```
 
-ID alone, digest alone, a successful HTTP status, or successful transmission is
-insufficient. Production of a valid Measurement and durable ingestion of that
-Measurement are separate lifecycle events.
+and the response was received over a server-authenticated, integrity-protected
+transport. Equivalently:
+
+```text
+deletion-authorizing ACK =
+    trusted server transport
+    AND matching ID
+    AND matching exact-byte digest
+    AND STORED/ALREADY_STORED
+```
+
+ID alone, digest alone, a successful HTTP status, successful transmission, or
+unauthenticated plaintext HTTP is insufficient. Production of a valid
+Measurement and durable ingestion of that Measurement are separate lifecycle
+events. Plain HTTP remains suitable for loopback and deterministic local tests,
+but never provides a production deletion-authorizing ownership proof.
 
 | Status | Durable ownership | Probe consequence |
 | --- | --- | --- |
@@ -140,7 +160,9 @@ Exactly-once delivery and global ordering are not promised.
 ## Transport and scope
 
 The initial normative [HTTP transport profile](HTTP.md) uses protobuf request and
-response bodies. No RPC service or SDK is defined. Authentication, production
-storage, scheduling, registration, heartbeats, fleet control, and remote
-configuration remain out of scope. Consumers pin a repository revision and
-generate bindings according to repository policy.
+response bodies. No RPC service or SDK is defined. Client authentication and
+authorization, production storage, scheduling, registration, heartbeats, fleet
+control, and remote configuration remain out of scope. Ingestion v1
+intentionally relies on server-authenticated TLS for its initial HTTP deletion
+boundary rather than adding application-layer signatures. Consumers pin a
+repository revision and generate bindings according to repository policy.
