@@ -82,12 +82,22 @@ HTTPS transport established
   `401 Unauthorized`.
 - A valid credential whose request contains a different `probe_id` is
   `403 Forbidden`.
-- A valid credential with a matching identity but an invalid correlatable
-  Measurement follows existing Ingestion v1 per-record semantics and may be
-  acknowledged as `INGESTION_STATUS_REJECTED`.
+- After authentication, the request wrapper is validated. A Measurement that
+  cannot be decoded has no identity claim and remains an existing per-record
+  validation failure, represented by `INGESTION_STATUS_REJECTED` when its
+  wrapper is correlatable. A decodable Measurement with a missing or empty
+  `probe_id` is likewise semantic-invalid and is `REJECTED`. A decodable
+  Measurement with a non-empty `probe_id` different from the principal is an
+  authorization failure and makes the whole request `403`.
 - `429`, `5xx`, network, TLS, and timeout behavior remains the existing retryable
   transport/service behavior. Other 4xx behavior remains the existing
   request-level rejection profile.
+
+Authorization is a complete batch preflight. If one record is malformed or
+semantic-invalid and another record makes an explicit unauthorized identity
+claim, the explicit claim wins: the whole request is `403`, with zero ACKs and
+zero durable mutation. A batch containing only malformed or missing-identity
+records can continue to the existing per-record `REJECTED` semantics.
 
 A `401` or `403` request MUST NOT become `STORED`, `ALREADY_STORED`, `RETRY`, or
 `REJECTED` ACK data. It MUST NOT authorize local deletion. Unauthorized data MUST
@@ -204,6 +214,8 @@ those fixtures do not define a production token format. It covers:
 - valid probe A credential with probe A -> normal ingestion and `STORED`;
 - valid probe A credential with probe B -> `403`;
 - a mixed probe A/probe B batch -> request-level `403` with no mutation;
+- malformed plus unauthorized, and semantic-invalid plus unauthorized, mixed
+  batches -> request-level `403` with zero ACKs and no mutation;
 - an existing record attempted with the wrong principal -> `403`, never
   `ALREADY_STORED` and never a storage disclosure;
 - valid identity plus invalid Measurement -> normal `REJECTED` behavior;

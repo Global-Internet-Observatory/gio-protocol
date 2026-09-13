@@ -69,6 +69,32 @@ def authenticate(headers, verifier):
     return verifier.verify(parse_authorization(headers))
 
 
+def validate_wrapper(request):
+    """Validate request-level fields without interpreting Measurement semantics."""
+    if not isinstance(request, dict) or not isinstance(request.get("measurements"), list):
+        raise IngestionError("request wrapper is invalid")
+    records = request["measurements"]
+    if not records:
+        raise IngestionError("request wrapper is empty")
+    seen = set()
+    for upload in records:
+        if not isinstance(upload, dict):
+            raise IngestionError("measurement upload wrapper is invalid")
+        measurement_id = upload.get("measurementId")
+        if not isinstance(measurement_id, str) or not measurement_id or measurement_id in seen:
+            raise IngestionError("measurement IDs are invalid or duplicated")
+        seen.add(measurement_id)
+        try:
+            payload = base64.b64decode(upload.get("measurementBytes", ""), validate=True)
+            supplied_digest = base64.b64decode(upload.get("payloadSha256", ""), validate=True)
+        except (TypeError, ValueError) as error:
+            raise IngestionError("request wrapper bytes are invalid") from error
+        if len(supplied_digest) != 32:
+            raise IngestionError("request wrapper digest is invalid")
+        if not isinstance(payload, bytes):
+            raise IngestionError("request wrapper payload is invalid")
+
+
 @dataclass
 class IngestionResult:
     status: int
@@ -79,6 +105,7 @@ def evaluate_request(headers, request, request_codec, measurement_codec, verifie
     """Apply the observable auth/identity/idempotency ordering to a fake store."""
     principal = authenticate(headers, verifier)
     decoded = request_codec.round_trip(request)
+    validate_wrapper(decoded)
 
     # Decode identity before semantic acceptance.  A mixed-identity request is
     # rejected as one request and cannot partially mutate storage.
@@ -87,9 +114,12 @@ def evaluate_request(headers, request, request_codec, measurement_codec, verifie
         try:
             measurement = measurement_codec.decode(base64.b64decode(upload["measurementBytes"], validate=True))
             identities.append(measurement.get("probe", {}).get("probeId"))
-        except (ValueError, KeyError, TypeError) as error:
-            raise IngestionError("measurement identity could not be decoded") from error
-    if any(identity != principal for identity in identities):
+        except (ValueError, KeyError, TypeError):
+            # A malformed Measurement has no identity claim to authorize. It
+            # remains a per-record validation failure unless another record in
+            # the same request makes an explicit unauthorized claim.
+            identities.append(None)
+    if any(identity is not None and identity != principal for identity in identities):
         raise AuthorizationFailure("measurement probe does not belong to authenticated principal")
 
     acknowledgements = []
@@ -152,6 +182,8 @@ def run_authentication_tests(request_codec, fixtures, measurement_codec):
     upload_a = _upload(fixture, measurement_codec)
     upload_b = _upload(probe_b, measurement_codec)
     upload_b_collision = _upload(probe_b_collision, measurement_codec)
+    conflicting_a = dict(fixture, probe=dict(fixture["probe"], softwareVersion="0.1.1"))
+    conflicting_upload = _upload(conflicting_a, measurement_codec)
     verifier = FakeCredentialVerifier()
     storage = {}
     auth_a = [("Authorization", "Bearer token-A")]
@@ -181,6 +213,19 @@ def run_authentication_tests(request_codec, fixtures, measurement_codec):
     assert result.status == 200 and result.acknowledgements[0]["status"] == STATUS_STORED
     cases += 1
 
+    before = dict(storage)
+    for request in (
+        {"malformed": True},
+        {"measurements": [upload_a]},
+        {"measurements": [conflicting_upload]},
+    ):
+        _expect(AuthenticationFailure,
+                lambda request=request: evaluate_request(
+                    [("Authorization", "Bearer invalid")], request, request_codec,
+                    measurement_codec, verifier, storage), 401)
+        assert storage == before
+        cases += 1
+
     _expect(AuthorizationFailure,
             lambda: evaluate_request(auth_a, {"measurements": [upload_b]}, request_codec,
                                      measurement_codec, verifier, storage), 403)
@@ -190,6 +235,36 @@ def run_authentication_tests(request_codec, fixtures, measurement_codec):
     _expect(AuthorizationFailure,
             lambda: evaluate_request(auth_a, {"measurements": [upload_a, upload_b]}, request_codec,
                                      measurement_codec, verifier, storage), 403)
+    assert storage == before
+    cases += 1
+
+    malformed_payload = dict(upload_a, measurementBytes=base64.b64encode(b"not-a-measurement").decode())
+    malformed_batch = {"measurements": [malformed_payload, upload_b]}
+    _expect(AuthorizationFailure,
+            lambda: evaluate_request(auth_a, malformed_batch, request_codec,
+                                     measurement_codec, verifier, storage), 403)
+    assert storage == before
+    cases += 1
+
+    invalid_semantic = dict(fixture, measurementId="auth-invalid", status="EXECUTION_STATUS_FAILED", errors=[])
+    invalid_semantic_upload = _upload(invalid_semantic, measurement_codec)
+    mixed_invalid_batch = {"measurements": [invalid_semantic_upload, upload_b]}
+    _expect(AuthorizationFailure,
+            lambda: evaluate_request(auth_a, mixed_invalid_batch, request_codec,
+                                     measurement_codec, verifier, storage), 403)
+    assert storage == before
+    cases += 1
+
+    malformed_only = evaluate_request(auth_a, {"measurements": [malformed_payload]}, request_codec,
+                                      measurement_codec, verifier, storage)
+    assert malformed_only.acknowledgements[0]["status"] == STATUS_REJECTED
+    assert storage == before
+    cases += 1
+
+    missing_probe = dict(fixture, measurementId="auth-missing-probe", probe={})
+    missing_probe_result = evaluate_request(auth_a, {"measurements": [_upload(missing_probe, measurement_codec)]},
+                                             request_codec, measurement_codec, verifier, storage)
+    assert missing_probe_result.acknowledgements[0]["status"] == STATUS_REJECTED
     assert storage == before
     cases += 1
 
@@ -212,7 +287,7 @@ def run_authentication_tests(request_codec, fixtures, measurement_codec):
     assert storage[fixture["measurementId"]] == measurement_codec.encode(fixture)
     cases += 1
 
-    invalid = dict(fixture, status="EXECUTION_STATUS_FAILED", errors=[])
+    invalid = dict(fixture, measurementId="auth-invalid-authorized", status="EXECUTION_STATUS_FAILED", errors=[])
     invalid_upload = _upload(invalid, measurement_codec)
     rejected = evaluate_request(auth_a, {"measurements": [invalid_upload]}, request_codec,
                                 measurement_codec, verifier, storage)
