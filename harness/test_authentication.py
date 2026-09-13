@@ -273,6 +273,14 @@ def run_authentication_tests(request_codec, fixtures, measurement_codec):
     assert storage == before
     cases += 1
 
+    empty_probe_id = dict(fixture, measurementId="auth-empty-probe-id",
+                          probe=dict(fixture["probe"], probeId=""))
+    empty_probe_result = evaluate_request(auth_a, {"measurements": [_upload(empty_probe_id, measurement_codec)]},
+                                          request_codec, measurement_codec, verifier, storage)
+    assert empty_probe_result.acknowledgements[0]["status"] == STATUS_REJECTED
+    assert storage == before
+    cases += 1
+
     # An already-stored ID belonging to probe A cannot be disclosed to a
     # credential whose payload claims probe A; identity is checked first.
     _expect(AuthorizationFailure,
@@ -299,7 +307,4 @@ def run_authentication_tests(request_codec, fixtures, measurement_codec):
     assert rejected.acknowledgements[0]["status"] == STATUS_REJECTED
     cases += 1
 
-    # Auth failures are request-level outcomes: no ACK is constructed and no
-    # status can authorize deletion.
-    cases += 1
     return cases

@@ -1,6 +1,6 @@
 # ADR 0002: Opaque bearer authentication for Ingestion v1
 
-Status: Proposed.
+Status: Accepted.
 
 ## Context
 

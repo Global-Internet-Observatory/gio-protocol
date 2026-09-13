@@ -98,7 +98,9 @@ transport. Equivalently:
 
 ```text
 deletion-authorizing ACK =
-    trusted server transport
+    configured trusted server implementing Authentication v1
+    AND request authenticated and authorized for the Measurement probe_id
+    AND trusted server transport
     AND matching ID
     AND matching exact-byte digest
     AND STORED/ALREADY_STORED

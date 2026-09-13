@@ -23,8 +23,11 @@ protobuf compression fields or compression negotiation semantics.
 
 Production requests MUST include exactly one valid `Authorization: Bearer`
 credential. Missing or invalid credentials are `401 Unauthorized`; a valid
-credential whose Measurement `probe_id` does not match its authenticated
-principal is a request-level `403 Forbidden`. The complete authentication,
+credential whose decodable Measurement carries a non-empty `probe_id` different
+from its authenticated principal is a request-level `403 Forbidden`. Malformed
+Measurements and Measurements with missing or empty `probe_id` remain existing
+per-record validation failures and may receive `REJECTED` when their wrappers
+are correlatable. The complete authentication,
 batch, lifecycle, and security rules are in [Authentication v1](AUTHENTICATION.md).
 
 ## Valid application response

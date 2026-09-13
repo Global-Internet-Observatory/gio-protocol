@@ -53,10 +53,13 @@ normalization, aliases, prefixes, or `deployment_id` fallback are allowed. This
 profile authenticates no other field, including deployment, location, network,
 target, or measurement kind.
 
-There is one principal per HTTP request. Every decoded Measurement in
-`SubmitMeasurementsRequest.measurements` MUST have the same `probe_id` as the
-principal. If any record differs, the server MUST reject the whole request with
-`403 Forbidden`; it MUST NOT return partial ACKs or mutate storage for the batch.
+There is one principal per HTTP request. Every decodable Measurement that carries
+a non-empty `probe_id` MUST either match the authenticated principal exactly or
+cause the whole request to fail with `403 Forbidden`. A decodable Measurement
+with a missing or empty `probe_id` does not make an authorization claim for
+another principal; it remains a Measurement semantic validation failure and
+follows the existing per-record `REJECTED` semantics. An explicit mismatch MUST
+not produce partial ACKs or mutate storage for the batch.
 
 Authentication and authorization are transport-context decisions. The token is
 never part of Measurement protobuf bytes, an ingestion wrapper, an ACK, or a
