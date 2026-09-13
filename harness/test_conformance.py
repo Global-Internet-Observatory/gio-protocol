@@ -359,6 +359,7 @@ def main():
         wire_cases = run_wire_tests(codec, FIXTURES, validate_measurement,
                                     expect_semantic_error, UnsupportedSemantics, WireError)
         from test_ingestion import run_ingestion_tests
+        from test_authentication import run_authentication_tests
         ingestion_request = BufCodec(arguments.buf, Path(directory),
                                      "gio.ingestion.v1.SubmitMeasurementsRequest")
         ingestion_response = BufCodec(arguments.buf, Path(directory),
@@ -366,8 +367,12 @@ def main():
         ingestion_cases = run_ingestion_tests(
             ingestion_request, ingestion_response, FIXTURES, codec
         )
+        authentication_cases = run_authentication_tests(
+            ingestion_request, FIXTURES, codec
+        )
     print(f"Conformance passed: {len(valid)} valid, {len(invalid)} semantic-invalid fixtures; "
-          f"{wire_cases} Measurement wire cases; {ingestion_cases} ingestion cases")
+          f"{wire_cases} Measurement wire cases; {ingestion_cases} ingestion cases; "
+          f"{authentication_cases} authentication cases")
     return 0
 
 

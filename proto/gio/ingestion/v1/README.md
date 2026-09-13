@@ -2,7 +2,9 @@
 
 `gio.ingestion.v1` transfers existing Measurement v1 records and acknowledges
 durable ownership. It does not describe measurement execution, scheduling,
-registration, authentication, or a collector implementation. The `.proto`
+registration, credential issuance, or a collector implementation. Its production
+HTTP transport uses the [Ingestion Authentication v1](AUTHENTICATION.md)
+profile. The `.proto`
 comments and this document are normative; **MUST**, **MUST NOT**, **SHOULD**, and
 **MAY** express protocol requirements.
 
@@ -43,7 +45,9 @@ cannot validate MUST NOT be certified as accepted; they may be rejected as
 unsupported input. Validation does not authorize rewriting the stored payload.
 
 The digest binds identity to bytes; it is not a signature or authentication
-mechanism. Authentication and authorization are deferred.
+mechanism. Transport authentication and authorization are defined by
+[Authentication v1](AUTHENTICATION.md), not by Measurement or these protobuf
+messages.
 
 ## Batch submission and correlation
 
@@ -94,7 +98,9 @@ transport. Equivalently:
 
 ```text
 deletion-authorizing ACK =
-    trusted server transport
+    configured trusted server implementing Authentication v1
+    AND request authenticated and authorized for the Measurement probe_id
+    AND trusted server transport
     AND matching ID
     AND matching exact-byte digest
     AND STORED/ALREADY_STORED
@@ -160,9 +166,11 @@ Exactly-once delivery and global ordering are not promised.
 ## Transport and scope
 
 The initial normative [HTTP transport profile](HTTP.md) uses protobuf request and
-response bodies. No RPC service or SDK is defined. Client authentication and
-authorization, production storage, scheduling, registration, heartbeats, fleet
-control, and remote configuration remain out of scope. Ingestion v1
-intentionally relies on server-authenticated TLS for its initial HTTP deletion
-boundary rather than adding application-layer signatures. Consumers pin a
-repository revision and generate bindings according to repository policy.
+response bodies. Production requests additionally implement [Authentication v1](AUTHENTICATION.md):
+one authenticated principal per request, bound exactly to every Measurement's
+`probe_id`. No RPC service or SDK is defined. Production storage, scheduling,
+registration, heartbeats, fleet control, and remote configuration remain out of
+scope. Ingestion v1 relies on server-authenticated TLS and the HTTP bearer
+profile for its deletion boundary rather than adding application-layer
+signatures. Consumers pin a repository revision and generate bindings according
+to repository policy.
