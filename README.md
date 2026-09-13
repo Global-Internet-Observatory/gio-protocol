@@ -74,6 +74,15 @@ intentionally uncaptured bodies; omitted capture metadata means unknown.
 
 ## Ingestion v1
 
+The current production ingestion stack is:
+
+```text
+Measurement v1 -> Ingestion v1 -> Ingestion Authentication v1
+```
+
+Authentication v1 binds an authenticated transport principal to
+`Measurement.probe.probe_id` while leaving both protobuf contracts unchanged.
+
 Ingestion v1 is the transfer and durability boundary for a future collector. A
 probe sends the exact serialized Measurement v1 bytes in an
 `gio.ingestion.v1.MeasurementUpload`, alongside the logical `measurement_id` and
@@ -84,16 +93,19 @@ Measurement v1 -> exact bytes -> ingestion request -> durable ownership -> ACK
 ```
 
 Only an acknowledgement with a matching ID, matching 32-byte SHA-256, and
-`STORED` or `ALREADY_STORED`, received over authenticated HTTPS server transport,
+`STORED` or `ALREADY_STORED`, received over authenticated HTTPS server transport
+and an authenticated request principal bound to the Measurement's `probe_id`,
 permits a probe to remove its local copy. The digest binds the ACK to exact
 bytes; TLS authenticates its transport origin. Delivery is at-least-once;
 duplicate submissions are normal, server deduplication is required, and global
 ordering is not promised. `RETRY` and `REJECTED` never authorize deletion, and
 `REJECTED` must not cause silent data loss. The
-[Ingestion v1 contract](proto/gio/ingestion/v1/README.md) and its
-[HTTP transport profile](proto/gio/ingestion/v1/HTTP.md) define these rules.
+[Ingestion v1 contract](proto/gio/ingestion/v1/README.md), its
+[HTTP transport profile](proto/gio/ingestion/v1/HTTP.md), and
+[Ingestion Authentication v1](proto/gio/ingestion/v1/AUTHENTICATION.md) define
+these rules.
 
-Authentication, collector implementation, production ingestion, scheduling,
+Collector implementation, credential issuance, production storage, scheduling,
 registration, and control-plane messages remain deferred.
 
 ## Design principles

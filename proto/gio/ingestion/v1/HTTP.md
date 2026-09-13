@@ -1,14 +1,16 @@
 # Ingestion v1 HTTP transport profile
 
 This is the normative initial transport for `gio.ingestion.v1`. Production
-deletion-authorizing ingestion requires HTTPS with authenticated server TLS. It
-does not define a running service, server discovery, client authentication, or
-authorization.
+deletion-authorizing ingestion requires HTTPS with authenticated server TLS and
+the [Ingestion Authentication v1](AUTHENTICATION.md) bearer profile. This
+document defines the wire transport; it does not define a running service,
+server discovery, credential issuance, or a control plane.
 
 ## Request
 
 ```http
 POST https://<configured-ingestion-origin>/v1/measurements:ingest
+Authorization: Bearer <opaque-token>
 Content-Type: application/x-protobuf
 Accept: application/x-protobuf
 
@@ -18,6 +20,12 @@ Accept: application/x-protobuf
 The body MUST be protobuf wire bytes. JSON is not a normative ingestion format.
 The record payloads MUST be the exact pending Measurement bytes. V1 adds no
 protobuf compression fields or compression negotiation semantics.
+
+Production requests MUST include exactly one valid `Authorization: Bearer`
+credential. Missing or invalid credentials are `401 Unauthorized`; a valid
+credential whose Measurement `probe_id` does not match its authenticated
+principal is a request-level `403 Forbidden`. The complete authentication,
+batch, lifecycle, and security rules are in [Authentication v1](AUTHENTICATION.md).
 
 ## Valid application response
 
@@ -69,6 +77,7 @@ these HTTPS and server-authentication requirements.
 | TLS handshake, certificate, or server-identity validation failure | No trusted ACK exists; retain all affected records and do not acknowledge locally. |
 | HTTP 429 or 5xx | Treat as retryable transport failure; retain records and do not acknowledge locally. |
 | HTTP 413 | Retain records; retry with smaller batches where possible. A single oversized record still requires preservation and operator-visible handling. |
+| HTTP 401 or 403 | Request-level authentication/authorization failure; no ACK is constructed, no storage or idempotency disclosure is allowed, and no local deletion is authorized. Preserve records and surface credential configuration failure. |
 | 2xx with wrong/missing media type, missing body, or malformed protobuf | Treat as invalid/untrusted response; retain all affected records. |
 | Malformed ACK set, including wrong ID/digest, missing/extra/duplicate ACK, wrong order, or `UNSPECIFIED` | Reject the entire ACK set before local deletion; retain all affected records. |
 | Unknown ACK status | Do not infer acceptance; retain the affected batch until it can be interpreted safely. |
@@ -84,8 +93,7 @@ Mixed `STORED`, `ALREADY_STORED`, `RETRY`, and `REJECTED` statuses belong in a v
 Retry timing/backoff and handling of optional HTTP retry hints are client policy.
 Redirects are not ingestion acknowledgements and MUST NOT authorize deletion.
 
-Client authentication, credentials, authorization policy, and endpoint
-provisioning will be specified separately. This profile adds no token, key,
-registration, or control-plane fields to the protobuf contract; its HTTPS
-server-authentication requirement is the transport precondition for
-deletion-authorizing ACKs.
+Authentication v1 adds no token, key, registration, or control-plane fields to
+the protobuf contract; its HTTPS server-authentication requirement remains the
+transport precondition for deletion-authorizing ACKs. The protobuf wire formats
+for Measurement v1 and Ingestion v1 are unchanged.

@@ -52,6 +52,13 @@ header list. The generic protobuf round-trip check preserves repeated-field
 sequence for wire correctness; it does not make that sequence an HTTP semantic
 requirement.
 
+Authentication conformance uses a fake opaque credential map to test the HTTP
+profile's request-level `401`/`403` outcomes, exact `probe_id` binding, mixed
+identity batch rejection, absence of unauthorized storage/idempotency disclosure,
+and normal `STORED`/`ALREADY_STORED`/`REJECTED` behavior after authorization. The
+fixtures are test identities only; they do not define a production token format
+or credential database.
+
 Every fixture encodes to binary, decodes, re-encodes, and compares decoded meaning.
 The invalid fixture's decode/round-trip is outside the expected-error handler:
 an unrelated parsing error or wrong invariant cannot make it pass. Equivalent
