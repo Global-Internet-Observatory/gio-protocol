@@ -192,6 +192,7 @@ def run_authentication_tests(request_codec, fixtures, measurement_codec):
 
     for headers in (
         [],
+        [("Authorization", "")],
         [("Authorization", "Bearer")],
         [("Authorization", "Bearer invalid")],
         [("Authorization", "Bearer revoked-token")],
@@ -200,6 +201,10 @@ def run_authentication_tests(request_codec, fixtures, measurement_codec):
         [("Authorization", "Bearer token-A, Bearer token-B")],
     ):
         _expect(AuthenticationFailure, lambda: authenticate(headers, verifier), 401)
+        cases += 1
+
+    for scheme in ("Bearer", "bearer", "BEARER"):
+        assert authenticate([("Authorization", f"{scheme} token-A")], verifier) == "probe-tokyo-1"
         cases += 1
 
     _expect(AuthenticationFailure,
