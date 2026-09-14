@@ -62,6 +62,10 @@ The client completes registration only for HTTP `200` with a valid
 correlates and whose `probe_id` is non-empty. No other status, including other
 2xx or redirects, can mean completion.
 
+The client outcome policy is closed-world: invalid `200`, other `2xx`, `429`, and `5xx` are
+`retry_exact`; every `3xx` and other `4xx` is `operator_intervention`; unknown
+statuses are never completion. Redirects are never followed automatically.
+
 ## Consequences and deferred work
 
 The request body contains two raw secrets, so HTTPS, no automatic redirects,

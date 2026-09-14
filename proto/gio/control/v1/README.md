@@ -59,3 +59,7 @@ semantics. Registration is semantic/idempotent state, rather than exact-payload
 storage like Measurement Ingestion. `registration_id` is untrusted text; any
 implementation that logs it MUST use structured logging or escaping and MUST
 NOT interpolate raw control characters into an unstructured log line.
+
+Only a valid correlated HTTP `200` response completes registration. All other
+HTTP statuses are non-completing; invalid `200`, other `2xx`, `429`, and `5xx` use exact retry,
+while all `3xx` and other `4xx` statuses require intervention.

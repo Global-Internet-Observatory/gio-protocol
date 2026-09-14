@@ -43,6 +43,35 @@ or `409` requires operator/developer intervention; the probe retains its local
 registration evidence and MUST NOT silently generate replacement credentials or
 a new registration identity.
 
+Clients MUST apply the following complete outcome classification:
+
+| Outcome | Client result |
+| --- | --- |
+| `200` with valid `application/x-protobuf`, decodable `RegisterProbeResponse`, exact `registration_id` correlation, and non-empty `probe_id` | `complete` |
+| `200` with wrong content type, malformed/undecodable response, mismatched `registration_id`, or empty `probe_id` | `retry_exact` |
+| Any other `2xx` (including `201`, `202`, `204`, and `206`) | `retry_exact` |
+| `429` or any `5xx` | `retry_exact` |
+| Network, TLS, or local timeout failure | `retry_exact` |
+| `400` or `409` | `operator_intervention` (operator/developer) |
+| `401` | `operator_intervention` (operator/bootstrap) |
+| Any `3xx` (`301`, `302`, `303`, `307`, `308`, or another redirect) | `operator_intervention`; MUST NOT automatically follow the redirect |
+| Any other `4xx` not assigned a Registration meaning (including `403`, `404`, `405`, `408`, `410`, `418`, `422`, and `451`) | `operator_intervention` |
+| Any status outside these HTTP classes | `operator_intervention` |
+
+Only the first row can complete registration. For every non-completing outcome,
+clients MUST retain the exact persisted registration intent, credentials, and
+local evidence; they MUST NOT regenerate credentials or registration identity.
+`retry_exact` recovers the canonical response when the server may already have
+durably committed, including for invalid `200` and other `2xx` responses.
+Intervention outcomes MUST be surfaced to an operator and MUST NOT trigger
+automatic retries. All `3xx` responses require this same behavior and MUST NOT
+be followed automatically: redirecting this secret-bearing request could send
+enrollment, control, and ingestion credentials to another origin.
+
+HTTP `408` is an actual server response and requires intervention under the
+other-4xx rule; it is distinct from a local network, TLS, or connection timeout,
+which uses exact retry. Unknown status values MUST NOT complete registration.
+
 The server MUST return success only after durable ownership exists for the
 probe ID, registration binding, both protected runtime credential verifiers,
 and enrollment consumption/binding. It MUST perform these as one logical atomic

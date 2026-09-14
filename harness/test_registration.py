@@ -98,8 +98,12 @@ def classify_client_outcome(status, response_valid=False):
     """Return completion only for a correlated 200 application response."""
     if status == 200 and response_valid:
         return "complete"
-    if status == 429 or status >= 500 or 200 <= status < 300:
+    if not isinstance(status, int):
+        return "operator_intervention"
+    if status == 429 or 500 <= status <= 599 or 200 <= status <= 299:
         return "retry_exact"
+    # Every unrecognized non-2xx status is non-completing. 3xx and remaining
+    # 4xx fall back to intervention; 5xx is retry_exact above (HTTP.md).
     return "operator_intervention"
 
 
@@ -242,24 +246,43 @@ def run_registration_tests(request_codec, response_codec):
     status_expectations = {
         200: "complete",
         201: "retry_exact",
+        202: "retry_exact",
         204: "retry_exact",
+        206: "retry_exact",
+        301: "operator_intervention",
         302: "operator_intervention",
+        303: "operator_intervention",
         307: "operator_intervention",
+        308: "operator_intervention",
         400: "operator_intervention",
         401: "operator_intervention",
         403: "operator_intervention",
         404: "operator_intervention",
+        405: "operator_intervention",
         408: "operator_intervention",
-        418: "operator_intervention",
         409: "operator_intervention",
+        410: "operator_intervention",
+        418: "operator_intervention",
+        422: "operator_intervention",
+        451: "operator_intervention",
         429: "retry_exact",
+        500: "retry_exact",
         503: "retry_exact",
+        599: "retry_exact",
+        600: "operator_intervention",
     }
     for status, expected in status_expectations.items():
         response_valid = status == 200
         assert classify_client_outcome(status, response_valid=response_valid) == expected
         cases += 1
     assert classify_client_outcome(200, response_valid=False) == "retry_exact"
+    cases += 1
+    for status in status_expectations:
+        if status != 200:
+            for response_valid in (False, True):
+                assert classify_client_outcome(status, response_valid) != "complete"
+    assert classify_client_outcome(200, response_valid=True) == "complete"
+    assert classify_client_outcome("unknown") == "operator_intervention"
     cases += 1
 
     # The client rejects a response that does not correlate to its request.
