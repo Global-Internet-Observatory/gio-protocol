@@ -46,19 +46,29 @@ return `401` for malformed, unknown, foreign, expired, or finalized requests.
 An authenticated malformed request returns `400`.
 
 The probe MUST complete only after Ingestion v1 acknowledges the corresponding
-Measurement as `STORED` or `ALREADY_STORED`. A valid new completion, or an exact
+Measurement as `STORED` or `ALREADY_STORED`. That ACK only authorizes an attempt;
+it is not proof to the control plane. Before a new finalization, the control
+plane MUST independently verify trusted durable collector ownership of the
+lease-assigned `measurement_id`, matching `probe_id`, valid Measurement v1
+semantics, and the Task-to-Measurement mapping. A valid new completion, or an exact
 retry of an already finalized completion, returns `200` with
 `Content-Type: application/x-protobuf` and a decodable, exactly correlated
-`CompleteTaskLeaseResponse`. The server returns success only after durable
-finalization of the lease and measurement ID binding. A `200` with another
+`CompleteTaskLeaseResponse`. The server returns success only after trusted
+ingestion verification and durable finalization of the lease and measurement ID
+binding. A `200` with another
 media type, malformed protobuf, or any task/lease/attempt/measurement echo
 mismatch is non-completing and MUST retry the exact persisted request; the
 server may already have finalized the lease.
 
 An unknown lease or a lease owned by another probe both return `404`, revealing
 no lease existence distinction. An expired lease, task/attempt mismatch, or a
-finalized lease with a different measurement ID returns `409`. Other `2xx`,
-`429`, `5xx`, and transport failures retry the exact completion request;
+finalized lease with a different measurement ID returns `409`. A request ID
+different from the lease-assigned ID, a definitively missing stored Measurement,
+a stored Measurement with the wrong principal, or a stored Measurement that
+fails the task mapping also returns `409` without finalization. If trusted
+ingestion verification is unavailable or indeterminate, the server returns
+`503`; the client retries the exact request. Other `2xx`, `429`, `5xx`, and
+transport failures retry the exact completion request;
 `400`, `401`, `404`, `409`, all `3xx`, and other `4xx` require intervention.
 No completion error envelope is defined.
 

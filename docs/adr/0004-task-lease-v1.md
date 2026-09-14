@@ -15,8 +15,9 @@ required for probes behind NAT or firewalls.
 `AcquireTaskLeaseRequest` is empty because the authenticated principal is the
 canonical `probe_id`. With one active lease per probe, acquire needs no client
 idempotency key: after a durable commit and lost response, the next poll
-returns the same lease, task specification, attempt, and expiry. `NoTaskAvailable`
-is an explicit `200` outcome rather than `204`.
+returns the same lease, task specification, attempt, expiry, and assigned
+`measurement_id`. `NoTaskAvailable` is an explicit `200` outcome rather than
+`204`.
 
 Each lease is exactly one bounded Measurement execution. A task has an
 immutable server-assigned `task_id`; each lease attempt has a unique
@@ -34,12 +35,22 @@ valid HTTP(S) authority and port, use no implicit proxy, and do not follow
 redirects. Per-task timeout is absent because lease expiry and probe execution
 bounds are different concepts.
 
-Before execution, the probe durably binds one locally generated
-`measurement_id` to the lease ID. It must persist and ingest the Measurement
-first, accepting only `STORED` or `ALREADY_STORED`, before calling
-`POST /v1/task-leases:complete`. FAILED Measurements are valid executions and
-are completed after successful ingestion. `REJECTED` or transient ingestion
-outcomes do not complete the lease.
+The control plane assigns one opaque `measurement_id` per lease attempt as part
+of the durable lease transaction. The probe persists the complete lease and
+uses that exact ID in the Measurement. It must persist and ingest the
+Measurement first, accepting only `STORED` or `ALREADY_STORED`, before calling
+`POST /v1/task-leases:complete`. Those ACKs authorize an attempt but are not
+proof for the control plane: before a new finalization, the control plane
+independently verifies trusted durable ingestion ownership, the authenticated
+probe principal, Measurement v1 semantics, and task mapping. FAILED
+Measurements are valid executions and are completed after successful trusted
+verification. `REJECTED` or transient ingestion outcomes do not complete the
+lease. No public collector lookup endpoint or signed receipt is frozen.
+
+Client-generated IDs were rejected for leased work: a client-supplied ID is an
+assertion that a control-token holder can invent and cannot prove durable
+ingestion ownership. Server assignment makes the expected execution identity
+immutable and lets completion bind to trusted collector state.
 
 Task execution has a normative mapping to Measurement intent: DNS copies the
 exact query name and QTYPE into the DNS kind/target, HTTP copies the exact URL
@@ -62,3 +73,7 @@ authors must not place secrets in URL path, query, or fragment. The
 contract does not provide exactly-once execution, attestation, hardware
 identity, malware resistance, distributed scheduler consensus, renewal,
 cancellation, heartbeat extension, admin issuance, or runtime implementation.
+A stolen control credential can poll work and hold a lease until expiry, but it
+cannot finalize a fresh lease without trusted durable ingestion ownership. The
+control credential alone cannot substitute a Measurement ID or stored
+Measurement.

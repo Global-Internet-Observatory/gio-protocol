@@ -76,6 +76,7 @@ def _lease(value):
     _require(isinstance(value, dict), "lease must be present")
     _nonempty(value.get("taskId"), "lease.taskId")
     _nonempty(value.get("leaseId"), "lease.leaseId")
+    _nonempty(value.get("measurementId"), "lease.measurementId")
     _require(isinstance(value.get("attempt"), int) and not isinstance(value["attempt"], bool)
              and value["attempt"] >= 1, "lease.attempt must be at least one")
     expires = value.get("expiresAt")
@@ -115,11 +116,19 @@ def validate_completion_response(response, request):
     return response
 
 
-def validate_measurement_for_task(task, measurement):
+def validate_measurement_for_task(task, measurement, expected_measurement_id=None,
+                                  expected_probe_id=None):
     """Validate the Task Lease producer mapping without duplicating Measurement validation."""
     _task(task)
     _require(isinstance(measurement, dict), "measurement must be an object")
     _nonempty(measurement.get("measurementId"), "measurement.measurementId")
+    if expected_measurement_id is not None:
+        _require(measurement["measurementId"] == expected_measurement_id,
+                 "measurement_id does not match lease")
+    if expected_probe_id is not None:
+        probe = measurement.get("probe") or {}
+        _require(probe.get("probeId") == expected_probe_id,
+                 "measurement probe does not match authenticated principal")
     kind, spec = next(iter(task.items()))
     expected_kind = {
         "dns": "MEASUREMENT_KIND_DNS",
@@ -188,18 +197,21 @@ def classify_client_outcome(status, response_valid=False, content_type="applicat
     return "operator_intervention"
 
 
-class ExecutionIdentity:
-    """Probe-side durable lease-to-measurement binding model."""
+class LeaseAcceptance:
+    """Probe-side durable acceptance of the server-assigned Measurement ID."""
 
     def __init__(self):
-        self.bindings = {}
-        self.next_measurement = 1
+        self.measurement_ids = {}
 
-    def bind(self, lease_id):
-        if lease_id not in self.bindings:
-            self.bindings[lease_id] = f"measurement-{self.next_measurement:04d}"
-            self.next_measurement += 1
-        return self.bindings[lease_id]
+    def accept(self, lease):
+        lease_id = lease["leaseId"]
+        measurement_id = lease["measurementId"]
+        if lease_id in self.measurement_ids:
+            _require(self.measurement_ids[lease_id] == measurement_id,
+                     "server changed measurement ID for an existing lease")
+        else:
+            self.measurement_ids[lease_id] = measurement_id
+        return self.measurement_ids[lease_id]
 
 
 class TaskLeaseModel:
@@ -213,7 +225,10 @@ class TaskLeaseModel:
         self.active_by_task = {}
         self.completed_tasks = set()
         self.next_lease = 1
-        self.now_expired = set()
+        self.next_measurement = 1
+        self.measurement_ids = set()
+        self.ingested_measurements = {}
+        self.ingestion_verification_available = True
 
     def add_task(self, task_id, task):
         _task(task)
@@ -237,13 +252,19 @@ class TaskLeaseModel:
             attempt = self.task_attempts[task_id] + 1
             lease_id = f"lease-{self.next_lease:04d}"
             self.next_lease += 1
+            measurement_id = f"measurement-{self.next_measurement:04d}"
+            self.next_measurement += 1
+            if measurement_id in self.measurement_ids:
+                raise AssertionError("server reused a measurement ID across lease attempts")
+            self.measurement_ids.add(measurement_id)
             self.task_attempts[task_id] = attempt
             wire = {"taskId": task_id, "leaseId": lease_id, "attempt": attempt,
-                    "expiresAt": "2030-01-01T00:00:00Z", "task": deepcopy(task)}
+                    "expiresAt": "2030-01-01T00:00:00Z", "task": deepcopy(task),
+                    "measurementId": measurement_id}
             # Durable assignment precedes the success response.
             self.leases[lease_id] = {"probe_id": probe_id, "task_id": task_id,
                                      "attempt": attempt, "wire": wire,
-                                     "state": "active", "measurement_id": None}
+                                     "state": "active", "measurement_id": measurement_id}
             self.active_by_probe[probe_id] = lease_id
             self.active_by_task[task_id] = lease_id
             return 200, {"lease": deepcopy(wire)}
@@ -255,7 +276,18 @@ class TaskLeaseModel:
             lease["state"] = "expired"
             self.active_by_probe.pop(lease["probe_id"], None)
             self.active_by_task.pop(lease["task_id"], None)
-            self.now_expired.add(lease_id)
+    def record_ingested(self, probe_id, measurement):
+        """Record trusted durable collector ownership for conformance only."""
+        _require(isinstance(measurement, dict), "measurement must be an object")
+        _nonempty(measurement.get("measurementId"), "measurement.measurementId")
+        existing = self.ingested_measurements.get(measurement["measurementId"])
+        if existing is not None:
+            _require(existing["probe_id"] == probe_id and existing["measurement"] == measurement,
+                     "measurement ID cannot be rebound to different trusted state")
+            return
+        self.ingested_measurements[measurement["measurementId"]] = {
+            "probe_id": probe_id, "measurement": deepcopy(measurement)
+        }
 
     def complete(self, probe_id, request, *, authenticated=True, malformed=False):
         if not authenticated:
@@ -271,6 +303,8 @@ class TaskLeaseModel:
             return 404, None
         if request["taskId"] != lease["task_id"] or request["attempt"] != lease["attempt"]:
             return 409, None
+        if request["measurementId"] != lease["measurement_id"]:
+            return 409, None
         if lease["state"] == "expired":
             return 409, None
         if lease["state"] == "finalized":
@@ -279,8 +313,22 @@ class TaskLeaseModel:
             response = {"taskId": lease["task_id"], "leaseId": request["leaseId"],
                         "attempt": lease["attempt"], "measurementId": lease["measurement_id"]}
             return 200, response
+        if not self.ingestion_verification_available:
+            return 503, None
+        stored = self.ingested_measurements.get(lease["measurement_id"])
+        if stored is None:
+            return 409, None
+        if stored["probe_id"] != probe_id:
+            return 409, None
+        try:
+            validate_measurement_for_task(
+                self.tasks[lease["task_id"]], stored["measurement"],
+                expected_measurement_id=lease["measurement_id"],
+                expected_probe_id=probe_id,
+            )
+        except ValueError:
+            return 409, None
         lease["state"] = "finalized"
-        lease["measurement_id"] = request["measurementId"]
         self.completed_tasks.add(lease["task_id"])
         self.active_by_probe.pop(probe_id, None)
         self.active_by_task.pop(lease["task_id"], None)
@@ -302,7 +350,7 @@ def run_task_lease_tests(acquire_request_codec, acquire_response_codec,
     model = TaskLeaseModel()
     for task_id, task in tasks.items():
         model.add_task(task_id, task)
-    identity = ExecutionIdentity()
+    identity = LeaseAcceptance()
     acquire_cases = completion_cases = mapping_cases = 0
 
     def expect_invalid(task):
@@ -377,17 +425,17 @@ def run_task_lease_tests(acquire_request_codec, acquire_response_codec,
     # Normative Task -> Measurement producer mapping. This is intentionally a
     # focused mapping check; full Measurement semantics remain in test_conformance.
     mapping_measurements = {
-        "dns": {"measurementId": "m-dns", "kind": "MEASUREMENT_KIND_DNS",
+        "dns": {"measurementId": "m-dns", "probe": {"probeId": "probe-a"}, "kind": "MEASUREMENT_KIND_DNS",
                 "target": {"hostname": "example.com"},
                 "dnsResult": {"queryName": "example.com", "queryType": 1,
                                "transport": "DNS_TRANSPORT_UDP", "resolver": endpoint}},
-        "http": {"measurementId": "m-http", "kind": "MEASUREMENT_KIND_HTTP",
+        "http": {"measurementId": "m-http", "probe": {"probeId": "probe-a"}, "kind": "MEASUREMENT_KIND_HTTP",
                   "target": {"url": "https://example.com/"},
                   "httpResult": {"method": "GET", "finalUrl": "https://example.com/"}},
-        "tcp": {"measurementId": "m-tcp", "kind": "MEASUREMENT_KIND_TCP_CONNECT",
+        "tcp": {"measurementId": "m-tcp", "probe": {"probeId": "probe-a"}, "kind": "MEASUREMENT_KIND_TCP_CONNECT",
                 "target": {"ipAddress": endpoint["ipAddress"], "port": 443},
                 "tcpConnectResult": {"remoteEndpoint": endpoint}},
-        "tls": {"measurementId": "m-tls", "kind": "MEASUREMENT_KIND_TLS_HANDSHAKE",
+        "tls": {"measurementId": "m-tls", "probe": {"probeId": "probe-a"}, "kind": "MEASUREMENT_KIND_TLS_HANDSHAKE",
                 "target": {"hostname": "example.com", "ipAddress": endpoint["ipAddress"], "port": 443},
                 "tlsHandshakeResult": {"remoteEndpoint": endpoint, "serverName": "example.com"}},
     }
@@ -395,6 +443,9 @@ def run_task_lease_tests(acquire_request_codec, acquire_response_codec,
         kind = next(iter(task))
         validate_measurement_for_task(task, mapping_measurements[kind])
         mapping_cases += 1
+    validate_measurement_for_task(tasks["task-dns"], mapping_measurements["dns"],
+                                   expected_measurement_id="m-dns", expected_probe_id="probe-a")
+    mapping_cases += 1
     failed_targets = {
         "dns": {"hostname": "example.com"},
         "http": {"url": "https://example.com/"},
@@ -403,7 +454,7 @@ def run_task_lease_tests(acquire_request_codec, acquire_response_codec,
     }
     for task in tasks.values():
         kind = next(iter(task))
-        failed = {"measurementId": f"m-failed-{kind}",
+        failed = {"measurementId": f"m-failed-{kind}", "probe": {"probeId": "probe-a"},
                   "kind": mapping_measurements[kind]["kind"],
                   "target": failed_targets[kind], "status": "EXECUTION_STATUS_FAILED"}
         validate_measurement_for_task(task, failed)
@@ -456,24 +507,39 @@ def run_task_lease_tests(acquire_request_codec, acquire_response_codec,
     # One active lease per probe and one active lease per task.
     status, second_probe = acquire("probe-b")
     assert status == 200 and second_probe["lease"]["taskId"] != lease["taskId"]
+    assert second_probe["lease"]["measurementId"] != lease["measurementId"]
     acquire_cases += 1
     status, same_probe = acquire("probe-b")
     assert same_probe == second_probe and status == 200
     acquire_cases += 1
 
     # Bind the first lease before execution and reuse the ID after reacquisition.
-    measurement_id = identity.bind(lease["leaseId"])
-    assert identity.bind(lease["leaseId"]) == measurement_id
+    measurement_id = lease["measurementId"]
+    assert identity.accept(lease) == measurement_id
+    assert identity.accept(retry["lease"]) == measurement_id
     acquire_cases += 1
 
-    # Complete the first lease only after a successful ingestion ACK.
+    # A control-token holder cannot finalize without trusted durable ingestion.
+    completion_request = {"taskId": lease["taskId"], "leaseId": lease["leaseId"],
+                          "attempt": lease["attempt"], "measurementId": measurement_id}
+    model.record_ingested("probe-a", {"measurementId": "unrelated-measurement"})
+    status, _ = complete("probe-a", completion_request)
+    assert status == 409 and model.leases[lease["leaseId"]]["state"] == "active"
+    completion_cases += 1
+    status, _ = complete("probe-a", dict(completion_request, measurementId="invented-measurement"))
+    assert status == 409 and model.leases[lease["leaseId"]]["state"] == "active"
+    completion_cases += 1
+
+    # Complete the first lease only after a trusted ingestion ownership record.
+    stored_measurement = deepcopy(mapping_measurements["dns"])
+    stored_measurement["measurementId"] = measurement_id
+    stored_measurement["probe"] = {"probeId": "probe-a"}
+    model.record_ingested("probe-a", stored_measurement)
     for ingestion_status in (RETRY, REJECTED, None):
         assert not completion_allowed(ingestion_status)
         completion_cases += 1
     assert completion_allowed(STORED) and completion_allowed(ALREADY_STORED)
     completion_cases += 1
-    completion_request = {"taskId": lease["taskId"], "leaseId": lease["leaseId"],
-                          "attempt": lease["attempt"], "measurementId": measurement_id}
     status, completed = complete("probe-a", completion_request)
     assert status == 200 and completed["measurementId"] == measurement_id
     validate_completion_response(completed, completion_request)
@@ -490,13 +556,46 @@ def run_task_lease_tests(acquire_request_codec, acquire_response_codec,
         assert classify_client_outcome(200, response_valid=False) == "retry_exact"
         completion_cases += 1
     # Durable finalization precedes response; exact retry is idempotent.
+    model.ingestion_verification_available = False
     status, exact = complete("probe-a", {"taskId": lease["taskId"], "leaseId": lease["leaseId"],
                                           "attempt": lease["attempt"], "measurementId": measurement_id})
     assert status == 200 and exact == completed
     completion_cases += 1
+    model.ingestion_verification_available = True
     status, _ = complete("probe-a", {"taskId": lease["taskId"], "leaseId": lease["leaseId"],
                                       "attempt": lease["attempt"], "measurementId": "measurement-other"})
     assert status == 409
+    completion_cases += 1
+
+    # The trusted store must bind the expected ID, principal, and task mapping.
+    for bad_measurement in (
+        dict(stored_measurement, kind="MEASUREMENT_KIND_HTTP"),
+        dict(stored_measurement, target={"hostname": "wrong.example"}),
+        dict(stored_measurement, probe={"probeId": "probe-b"}),
+    ):
+        check_model = TaskLeaseModel()
+        check_model.add_task("task", tasks["task-dns"])
+        _, check_response = check_model.acquire("probe-a")
+        check_lease = check_response["lease"]
+        check_measurement = dict(bad_measurement, measurementId=check_lease["measurementId"])
+        check_model.record_ingested("probe-a", check_measurement)
+        check_request = {"taskId": check_lease["taskId"], "leaseId": check_lease["leaseId"],
+                         "attempt": check_lease["attempt"], "measurementId": check_lease["measurementId"]}
+        status, _ = check_model.complete("probe-a", check_request)
+        assert status == 409 and check_model.leases[check_lease["leaseId"]]["state"] == "active"
+        completion_cases += 1
+
+    # Verification uncertainty is retryable and cannot finalize the lease.
+    outage_model = TaskLeaseModel()
+    outage_model.add_task("task", tasks["task-http"])
+    _, outage_response = outage_model.acquire("probe-a")
+    outage_lease = outage_response["lease"]
+    outage_model.ingestion_verification_available = False
+    outage_request = {"taskId": outage_lease["taskId"], "leaseId": outage_lease["leaseId"],
+                      "attempt": outage_lease["attempt"], "measurementId": outage_lease["measurementId"]}
+    status, _ = outage_model.complete("probe-a", outage_request)
+    assert status == 503 and outage_model.leases[outage_lease["leaseId"]]["state"] == "active"
+    assert classify_client_outcome(503) == "retry_exact"
     completion_cases += 1
 
     for candidate in (
@@ -532,8 +631,9 @@ def run_task_lease_tests(acquire_request_codec, acquire_response_codec,
     assert status == 200 and reissued["lease"]["taskId"] == second_probe["lease"]["taskId"]
     assert reissued["lease"]["leaseId"] != second_probe["lease"]["leaseId"]
     assert reissued["lease"]["attempt"] == second_probe["lease"]["attempt"] + 1
-    new_measurement = identity.bind(reissued["lease"]["leaseId"])
-    assert new_measurement != identity.bind(second_probe["lease"]["leaseId"])
+    new_measurement = reissued["lease"]["measurementId"]
+    assert identity.accept(reissued["lease"]) == new_measurement
+    assert new_measurement != second_probe["lease"]["measurementId"]
     acquire_cases += 1
     status, _ = complete("probe-b", {"taskId": second_probe["lease"]["taskId"],
                                       "leaseId": second_probe["lease"]["leaseId"],
@@ -543,7 +643,10 @@ def run_task_lease_tests(acquire_request_codec, acquire_response_codec,
     completion_cases += 1
 
     # Acquire response oneof and task-shape validation, including malformed outcomes.
+    missing_measurement = dict(lease)
+    missing_measurement.pop("measurementId")
     for invalid in ({}, {"lease": lease, "noTask": {}},
+                    {"lease": missing_measurement},
                     {"lease": dict(lease, attempt=0)},
                     {"lease": dict(lease, task={"http": {"url": "relative"}})}):
         try:

@@ -32,6 +32,8 @@ message TaskLease {
   google.protobuf.Timestamp expires_at = 4;
   // Exactly one bounded Measurement task specification.
   MeasurementTask task = 5;
+  // Server-assigned opaque Measurement identity for this lease attempt.
+  string measurement_id = 6;
 }
 
 // One lease produces exactly one Measurement execution.
@@ -71,7 +73,8 @@ message TlsTask {
   optional string server_name = 2;
 }
 
-// Reports one successfully ingested Measurement for a lease attempt.
+// Asserts that the server-assigned Measurement for a lease attempt was ingested.
+// The control plane independently verifies trusted durable ownership.
 message CompleteTaskLeaseRequest {
   string task_id = 1;
   string lease_id = 2;
