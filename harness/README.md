@@ -59,6 +59,19 @@ and normal `STORED`/`ALREADY_STORED`/`REJECTED` behavior after authorization. Th
 fixtures are test identities only; they do not define a production token format
 or credential database.
 
+Task Lease conformance uses a pure durable reference model rather than an HTTP
+server. It exercises authenticated pull leasing, one active lease per probe and
+task, lost-response recovery, expiry and incremented attempts, four known task
+kinds using shared protocol primitives, durable lease-to-Measurement identity,
+ingestion-before-completion gating, immutable completion retries, task-to-
+Measurement mapping, completion media-type correlation, and the `401`/`400`/
+`404`/`409`/`503` boundaries. The model assigns one Measurement ID per lease,
+requires a trusted ingestion ownership record and matching principal/task before
+finalization, and treats the client ACK as permission to attempt completion only.
+Task state is semantic and idempotent; unknown protobuf fields alone are
+accepted, while unknown task kinds or invalid known fields are not executable by
+a v1 probe.
+
 Every fixture encodes to binary, decodes, re-encodes, and compares decoded meaning.
 The invalid fixture's decode/round-trip is outside the expected-error handler:
 an unrelated parsing error or wrong invariant cannot make it pass. Equivalent
