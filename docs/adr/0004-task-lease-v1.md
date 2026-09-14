@@ -55,8 +55,9 @@ immutable and lets completion bind to trusted collector state.
 Server assignment has two independent purposes: it binds one expected
 Measurement to one lease attempt, and it supplies a globally collision-resistant
 ID that another probe cannot feasibly predict and preempt through the global
-Ingestion namespace. Production Task Lease IDs MUST come from a CSPRNG with at
-least 128 bits of unpredictability (256 bits recommended). Predictable
+Ingestion namespace. Production `TaskLease.measurement_id` values MUST come
+from a CSPRNG with at least 128 bits of unpredictability (256 bits
+recommended). Predictable
 sequences, counters, database IDs, and timestamp-only values are forbidden;
 UUID/ULID or any other textual syntax is not required. The ID is opaque and not
 an authentication credential. Ingestion v1's exact-ID/bytes rules and global
