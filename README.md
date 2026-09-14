@@ -140,7 +140,9 @@ Task Lease v1 uses authenticated pull-based leasing. A probe has at most one
 active lease, and each lease represents exactly one Measurement execution. A
 durable lease carries a server-assigned `measurement_id` and is returned again
 after a lost acquire response; expiry permits a new at-least-once attempt with
-a new ID. Completion requires `STORED` or `ALREADY_STORED` ingestion acknowledgement
+a new ID. Production lease IDs are globally collision-resistant and require at
+least 128 bits of CSPRNG unpredictability; predictable counters, timestamps,
+and database IDs are forbidden, while no UUID/ULID syntax is required. Completion requires `STORED` or `ALREADY_STORED` ingestion acknowledgement
 followed by independent trusted verification of durable Measurement ownership.
 The protocol does not define a scheduler, renewal, heartbeat, cancellation,
 capabilities, or runtime. Its normative task-to-Measurement mapping preserves

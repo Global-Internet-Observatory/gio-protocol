@@ -52,6 +52,16 @@ assertion that a control-token holder can invent and cannot prove durable
 ingestion ownership. Server assignment makes the expected execution identity
 immutable and lets completion bind to trusted collector state.
 
+Server assignment has two independent purposes: it binds one expected
+Measurement to one lease attempt, and it supplies a globally collision-resistant
+ID that another probe cannot feasibly predict and preempt through the global
+Ingestion namespace. Production Task Lease IDs MUST come from a CSPRNG with at
+least 128 bits of unpredictability (256 bits recommended). Predictable
+sequences, counters, database IDs, and timestamp-only values are forbidden;
+UUID/ULID or any other textual syntax is not required. The ID is opaque and not
+an authentication credential. Ingestion v1's exact-ID/bytes rules and global
+namespace remain unchanged.
+
 Task execution has a normative mapping to Measurement intent: DNS copies the
 exact query name and QTYPE into the DNS kind/target, HTTP copies the exact URL
 and uses GET, TCP copies the endpoint into the TCP_CONNECT target/result, and
@@ -77,3 +87,8 @@ A stolen control credential can poll work and hold a lease until expiry, but it
 cannot finalize a fresh lease without trusted durable ingestion ownership. The
 control credential alone cannot substitute a Measurement ID or stored
 Measurement.
+
+The threat model also includes cross-principal Measurement-ID preemption: a
+probe with its own valid ingestion credential must not be able to guess a
+future leased ID and cause a conflicting upload. This requirement protects
+unassigned IDs; it does not make an already assigned ID secret.

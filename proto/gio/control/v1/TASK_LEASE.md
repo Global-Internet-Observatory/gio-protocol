@@ -18,8 +18,9 @@ active lease, the server returns `200` with
 Each `TaskLease` is exactly one execution attempt and contains one immutable
 `task_id`, one unique `lease_id`, a one-based `attempt`, server-authoritative
 `expires_at`, a server-assigned opaque `measurement_id`, and exactly one
-`MeasurementTask`. The measurement ID is unique per lease attempt, immutable,
-and returned identically on reacquire. Lease renewal, extension,
+`MeasurementTask`. The measurement ID is globally unique across all leased
+and standalone Measurement executions, immutable, and returned identically on
+reacquire. Lease renewal, extension,
 cancellation, and decline are not defined in v1. When an uncompleted lease
 expires, the task may be assigned again with the same `task_id`, a new
 `lease_id`, and `attempt + 1`. Execution is therefore at-least-once, never
@@ -76,6 +77,36 @@ ownership of the expected Measurement before finalizing a new lease. The
 authoritative stored Measurement must have the lease-assigned ID, the same
 authenticated `probe_id`, valid Measurement v1 semantics, and the matching
 task mapping. A missing or mismatching Measurement prevents finalization.
+
+### Measurement ID generation and preemption resistance
+
+Task Lease v1 `measurement_id` values MUST be globally collision-resistant and
+computationally infeasible for another probe principal to predict before
+assignment. Production assignment MUST use a cryptographically secure random
+source with at least 128 bits of unpredictability (256 bits is recommended).
+This is a generation requirement, not a wire encoding requirement: UUID, ULID,
+prefix, alphabet, and textual representation are not prescribed.
+
+Implementations MUST NOT use a predictable global or per-process sequence,
+database row number or auto-increment value, timestamp-only value, incremental
+counter, or other guessable allocator. Examples such as `measurement-1`,
+`task-123-attempt-1`, and a Unix timestamp are non-conforming even when they
+are unique at the time they are issued. The reference harness may use
+deterministic synthetic IDs solely for stable assertions; that spelling is not
+a production algorithm, and no statistical randomness test is implied.
+
+The global Ingestion v1 Measurement ID namespace is unchanged: the same ID and
+exact bytes yield `ALREADY_STORED`, while different bytes yield `REJECTED`.
+Without unpredictable assignment, a probe holding its own ingestion credential
+could pre-submit different bytes under a guessed future ID and preempt the
+real lease owner's upload. Unpredictability prevents this cross-principal
+measurement-ID preemption. `measurement_id` is not an authentication
+credential and need not remain confidential after assignment; it is only
+unpredictable before assignment. IDs are global across probes, tasks, attempts,
+leased and non-leased executions, and control-plane restarts or restores; they
+must never be namespaced per probe. Random generation needs no persisted RNG
+state or durable counter, provided the global uniqueness and unpredictability
+requirements remain true.
 
 ## Task-to-Measurement mapping
 

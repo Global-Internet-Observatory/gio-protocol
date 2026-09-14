@@ -32,7 +32,9 @@ message TaskLease {
   google.protobuf.Timestamp expires_at = 4;
   // Exactly one bounded Measurement task specification.
   MeasurementTask task = 5;
-  // Server-assigned opaque Measurement identity for this lease attempt.
+  // Server-assigned globally unique opaque Measurement identity for this
+  // lease attempt. Task Lease v1 requires production assignment to be
+  // cryptographically unpredictable to other probe principals.
   string measurement_id = 6;
 }
 

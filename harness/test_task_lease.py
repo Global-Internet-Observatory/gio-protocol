@@ -252,6 +252,9 @@ class TaskLeaseModel:
             attempt = self.task_attempts[task_id] + 1
             lease_id = f"lease-{self.next_lease:04d}"
             self.next_lease += 1
+            # Synthetic deterministic IDs make reference assertions stable only.
+            # Production Task Lease v1 IDs MUST use a CSPRNG and be unpredictable
+            # to other probe principals; this spelling is not an allocator profile.
             measurement_id = f"measurement-{self.next_measurement:04d}"
             self.next_measurement += 1
             if measurement_id in self.measurement_ids:
@@ -634,6 +637,9 @@ def run_task_lease_tests(acquire_request_codec, acquire_response_codec,
     new_measurement = reissued["lease"]["measurementId"]
     assert identity.accept(reissued["lease"]) == new_measurement
     assert new_measurement != second_probe["lease"]["measurementId"]
+    # The reference model's global set covers distinct probes, tasks, and attempts.
+    assigned_ids = {lease["measurementId"], second_probe["lease"]["measurementId"], new_measurement}
+    assert assigned_ids == model.measurement_ids and len(assigned_ids) == 3
     acquire_cases += 1
     status, _ = complete("probe-b", {"taskId": second_probe["lease"]["taskId"],
                                       "leaseId": second_probe["lease"]["leaseId"],
