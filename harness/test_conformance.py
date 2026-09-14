@@ -370,9 +370,15 @@ def main():
         authentication_cases = run_authentication_tests(
             ingestion_request, FIXTURES, codec
         )
+        from test_registration import run_registration_tests
+        registration_request = BufCodec(arguments.buf, Path(directory),
+                                        "gio.control.v1.RegisterProbeRequest")
+        registration_response = BufCodec(arguments.buf, Path(directory),
+                                         "gio.control.v1.RegisterProbeResponse")
+        registration_cases = run_registration_tests(registration_request, registration_response)
     print(f"Conformance passed: {len(valid)} valid, {len(invalid)} semantic-invalid fixtures; "
           f"{wire_cases} Measurement wire cases; {ingestion_cases} ingestion cases; "
-          f"{authentication_cases} authentication cases")
+          f"{authentication_cases} authentication cases; {registration_cases} registration cases")
     return 0
 
 

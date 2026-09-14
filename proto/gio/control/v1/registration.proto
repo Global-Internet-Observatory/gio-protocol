@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package gio.control.v1;
+
+// The semantic registration identity is bound atomically by the control plane.
+message RegisterProbeRequest {
+  // Opaque, non-secret installation identity. It is stable across retries.
+  string registration_id = 1;
+  // Probe-generated control-plane bearer credential.
+  string control_bearer_token = 2;
+  // Probe-generated ingestion bearer credential.
+  string ingestion_bearer_token = 3;
+}
+
+// The control plane assigns probe_id; runtime credentials are never returned.
+message RegisterProbeResponse {
+  // Echo of the request identity for strict response correlation.
+  string registration_id = 1;
+  // Stable server-assigned canonical probe identity.
+  string probe_id = 2;
+}

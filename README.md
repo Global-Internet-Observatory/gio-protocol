@@ -74,7 +74,7 @@ intentionally uncaptured bodies; omitted capture metadata means unknown.
 
 ## Ingestion v1
 
-The current production ingestion stack is:
+The current production data-plane stack is:
 
 ```text
 Measurement v1 -> Ingestion v1 -> Ingestion Authentication v1
@@ -106,7 +106,26 @@ ordering is not promised. `RETRY` and `REJECTED` never authorize deletion, and
 these rules.
 
 Collector implementation, credential issuance, production storage, scheduling,
-registration, and control-plane messages remain deferred.
+and runtime registration implementation remain deferred. The first control-plane
+contract, Probe Registration v1, now defines only identity and initial
+credential binding; its [contract](proto/gio/control/v1/README.md) and
+[HTTP profile](proto/gio/control/v1/HTTP.md) do not define a service.
+
+## Probe Registration v1
+
+`gio.control.v1` consumes a one-time enrollment credential at
+`POST /v1/probes:register`. A probe generates and durably persists its opaque
+`registration_id`, control bearer token, and ingestion bearer token before the
+first request. The control plane assigns `probe_id`, stores protected verifiers,
+and returns only the correlated registration ID and assigned probe ID. Exact
+retries are idempotent, including after response loss; changed credentials and
+registration collisions are conflicts. Task Lease, heartbeat, scheduling,
+capabilities, credential rotation, enrollment issuance, and runtime code are
+deferred.
+
+This is a credential provisioning-origin clarification for Authentication v1;
+it changes no Authentication HTTP behavior. There is no Measurement or
+Ingestion protobuf change.
 
 ## Design principles
 
