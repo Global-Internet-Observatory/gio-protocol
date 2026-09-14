@@ -127,6 +127,22 @@ This is a credential provisioning-origin clarification for Authentication v1;
 it changes no Authentication HTTP behavior. There is no Measurement or
 Ingestion protobuf change.
 
+## Task Lease v1
+
+The first task protocol extends the control-plane flow:
+
+```text
+Registration v1 -> control credential -> Task Lease v1
+    -> Measurement execution -> authenticated Ingestion v1 -> task completion
+```
+
+Task Lease v1 uses authenticated pull-based leasing. A probe has at most one
+active lease, and each lease represents exactly one Measurement execution. A
+durable lease is returned again after a lost acquire response; expiry permits a
+new at-least-once attempt. Completion is allowed only after `STORED` or
+`ALREADY_STORED` ingestion acknowledgement. The protocol does not define a
+scheduler, renewal, heartbeat, cancellation, capabilities, or runtime.
+
 ## Design principles
 
 Protocol development follows a few core principles:

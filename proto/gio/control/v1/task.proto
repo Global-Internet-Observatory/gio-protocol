@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+package gio.control.v1;
+
+import "gio/common/v1/network.proto";
+import "gio/measurement/v1/dns.proto";
+import "google/protobuf/timestamp.proto";
+
+// An empty pull request. The authenticated control bearer identifies the probe.
+message AcquireTaskLeaseRequest {}
+
+// A poll returns either one lease or an explicit no-task outcome.
+message AcquireTaskLeaseResponse {
+  oneof outcome {
+    TaskLease lease = 1;
+    NoTaskAvailable no_task = 2;
+  }
+}
+
+// The control plane has no eligible task for this probe at this poll.
+message NoTaskAvailable {}
+
+// Server-owned assignment of exactly one Measurement execution attempt.
+message TaskLease {
+  // Immutable server-assigned task specification identity.
+  string task_id = 1;
+  // Unique identity for this lease attempt.
+  string lease_id = 2;
+  // One-based execution attempt number.
+  uint32 attempt = 3;
+  // Server-authoritative expiry, not a probe clock assertion.
+  google.protobuf.Timestamp expires_at = 4;
+  // Exactly one bounded Measurement task specification.
+  MeasurementTask task = 5;
+}
+
+// One lease produces exactly one Measurement execution.
+message MeasurementTask {
+  oneof kind {
+    DnsTask dns = 1;
+    HttpTask http = 2;
+    TcpTask tcp = 3;
+    TlsTask tls = 4;
+  }
+}
+
+// A DNS Internet-class query task.
+message DnsTask {
+  string query_name = 1;
+  uint32 query_type = 2;
+  optional gio.measurement.v1.DnsTransport transport = 3;
+  optional gio.common.v1.NetworkEndpoint resolver = 4;
+}
+
+// An HTTP GET task. The URL must be absolute and use HTTP or HTTPS.
+message HttpTask {
+  string url = 1;
+}
+
+// A TCP connect task.
+message TcpTask {
+  gio.common.v1.NetworkEndpoint remote_endpoint = 1;
+}
+
+// A TLS handshake task over the remote endpoint, with optional SNI.
+message TlsTask {
+  gio.common.v1.NetworkEndpoint remote_endpoint = 1;
+  optional string server_name = 2;
+}
+
+// Reports one successfully ingested Measurement for a lease attempt.
+message CompleteTaskLeaseRequest {
+  string task_id = 1;
+  string lease_id = 2;
+  uint32 attempt = 3;
+  string measurement_id = 4;
+}
+
+// Correlated acknowledgement that the lease was durably finalized.
+message CompleteTaskLeaseResponse {
+  string task_id = 1;
+  string lease_id = 2;
+  uint32 attempt = 3;
+  string measurement_id = 4;
+}

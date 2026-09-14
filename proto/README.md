@@ -11,6 +11,7 @@ The initial packages are:
 - `gio.ingestion.v1` for exact-byte Measurement transfer and durable ownership
   acknowledgements.
 - `gio.control.v1` for Probe Registration and initial credential provisioning.
+  It also contains the Task Assignment / Lease v1 messages.
 
 All current files explicitly use Protocol Buffers v3 syntax. Adding a different
 syntax or edition requires a deliberate repository-wide compatibility review.
