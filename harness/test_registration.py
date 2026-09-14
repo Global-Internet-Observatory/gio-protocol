@@ -40,7 +40,7 @@ class RegistrationModel:
         return len(raw) == 32 and base64.urlsafe_b64encode(raw).decode().rstrip("=") == value
 
     @staticmethod
-    def _valid_request(request):
+    def _valid_request(request, enrollment_token=None):
         if not isinstance(request, dict):
             return False
         registration_id = request.get("registrationId")
@@ -54,6 +54,7 @@ class RegistrationModel:
             RegistrationModel._valid_token(control)
             and RegistrationModel._valid_token(ingestion)
             and control != ingestion
+            and (enrollment_token is None or enrollment_token not in (control, ingestion))
         )
 
     def register(self, enrollment_token, request, *, malformed=False):
@@ -67,18 +68,16 @@ class RegistrationModel:
             if bound is None or registration_id != bound:
                 return 401, None
             existing = self.registrations[bound]
-            if malformed or not self._valid_request(request):
+            if malformed or not self._valid_request(request, enrollment_token):
                 return 400, None
             if (self._verifier(request["controlBearerToken"]) == existing["control_verifier"]
                     and self._verifier(request["ingestionBearerToken"]) == existing["ingestion_verifier"]):
                 return 200, {"registrationId": bound, "probeId": existing["probe_id"]}
             return 409, None
-        if malformed or not self._valid_request(request):
+        if malformed or not self._valid_request(request, enrollment_token):
             return 400, None
         control = request["controlBearerToken"]
         ingestion = request["ingestionBearerToken"]
-        if enrollment_token in (control, ingestion):
-            return 400, None
         existing = self.registrations.get(registration_id)
         if existing is not None:
             return 409, None
@@ -95,15 +94,27 @@ class RegistrationModel:
         return 200, {"registrationId": registration_id, "probeId": probe_id}
 
 
-def classify_client_outcome(status, response_valid=True):
-    """Return whether the persisted exact request may be retried."""
-    if status in (429,) or status >= 500 or (200 <= status < 300 and not response_valid):
+def classify_client_outcome(status, response_valid=False):
+    """Return completion only for a correlated 200 application response."""
+    if status == 200 and response_valid:
+        return "complete"
+    if status == 429 or status >= 500 or 200 <= status < 300:
         return "retry_exact"
-    if status == 401:
-        return "operator_intervention"
-    if status in (400, 409):
-        return "operator_intervention"
-    return "complete"
+    return "operator_intervention"
+
+
+def parse_bearer_authorization(headers):
+    """Apply the Authentication v1 Bearer header boundary."""
+    authorization = [value for name, value in headers if name.lower() == "authorization"]
+    if len(authorization) != 1:
+        return None
+    parts = authorization[0].split()
+    if len(parts) != 2 or parts[0].lower() != "bearer" or not parts[1]:
+        return None
+    credential = parts[1]
+    if any(char.isspace() for char in credential) or "," in credential:
+        return None
+    return credential
 
 
 def _token(byte):
@@ -160,6 +171,18 @@ def run_registration_tests(request_codec, response_codec):
         status, _ = outcome(token, {"malformed": True}, malformed=True)
         assert status == 401
         cases += 1
+    bearer_cases = (
+        ([], None),
+        ([("Authorization", "")], None),
+        ([("Authorization", "Bearer")], None),
+        ([("Authorization", "Bearer token-a"), ("authorization", "Bearer token-a")], None),
+        ([("Authorization", "Bearer token-a, Bearer token-b")], None),
+        ([("Authorization", "Bearer token-a")], "token-a"),
+        ([("Authorization", "bEaReR token-a")], "token-a"),
+    )
+    for headers, expected in bearer_cases:
+        assert parse_bearer_authorization(headers) == expected
+        cases += 1
     status, _ = outcome(enrollment, dict(request, registrationId="other-install"))
     assert status == 401
     cases += 1
@@ -173,10 +196,20 @@ def run_registration_tests(request_codec, response_codec):
         dict(request, controlBearerToken=ingestion),
         dict(request, controlBearerToken="bad"),
         dict(request, ingestionBearerToken="bad"),
-        dict(request, controlBearerToken=enrollment),
     ):
         before = deepcopy(model.registrations)
         status, _ = outcome(other_enrollment, candidate)
+        assert status == 400 and model.registrations == before
+        cases += 1
+
+    # Enrollment/runtime equality is request-invalid on the active path.
+    for token, candidate in (
+        (_token(9), dict(request, controlBearerToken=_token(9))),
+        (_token(10), dict(request, ingestionBearerToken=_token(10))),
+    ):
+        model.add_enrollment(token)
+        before = deepcopy(model.registrations)
+        status, _ = outcome(token, candidate)
         assert status == 400 and model.registrations == before
         cases += 1
 
@@ -186,17 +219,47 @@ def run_registration_tests(request_codec, response_codec):
         assert status == 409
         cases += 1
 
+    # The same equality rule applies after consumption, before conflict handling.
+    consumed_enrollment = _token(11)
+    consumed_request = {"registrationId": "install-opaque-2", "controlBearerToken": _token(12),
+                        "ingestionBearerToken": _token(13)}
+    model.add_enrollment(consumed_enrollment)
+    status, _ = outcome(consumed_enrollment, consumed_request)
+    assert status == 200
+    cases += 1
+    for candidate in (dict(consumed_request, controlBearerToken=consumed_enrollment),
+                      dict(consumed_request, ingestionBearerToken=consumed_enrollment)):
+        status, _ = outcome(consumed_enrollment, candidate)
+        assert status == 400
+        cases += 1
+
     # A different valid enrollment identity cannot claim an occupied ID.
     model.add_enrollment("enroll-third")
     status, _ = outcome("enroll-third", request)
     assert status == 409 and model.registrations[request["registrationId"]]["probe_id"] == "probe-0001"
     cases += 1
 
-    assert classify_client_outcome(429) == "retry_exact"
-    assert classify_client_outcome(503) == "retry_exact"
+    status_expectations = {
+        200: "complete",
+        201: "retry_exact",
+        204: "retry_exact",
+        302: "operator_intervention",
+        307: "operator_intervention",
+        400: "operator_intervention",
+        401: "operator_intervention",
+        403: "operator_intervention",
+        404: "operator_intervention",
+        408: "operator_intervention",
+        418: "operator_intervention",
+        409: "operator_intervention",
+        429: "retry_exact",
+        503: "retry_exact",
+    }
+    for status, expected in status_expectations.items():
+        response_valid = status == 200
+        assert classify_client_outcome(status, response_valid=response_valid) == expected
+        cases += 1
     assert classify_client_outcome(200, response_valid=False) == "retry_exact"
-    assert classify_client_outcome(401) == "operator_intervention"
-    assert classify_client_outcome(409) == "operator_intervention"
     cases += 1
 
     # The client rejects a response that does not correlate to its request.

@@ -123,6 +123,10 @@ registration collisions are conflicts. Task Lease, heartbeat, scheduling,
 capabilities, credential rotation, enrollment issuance, and runtime code are
 deferred.
 
+This is a credential provisioning-origin clarification for Authentication v1;
+it changes no Authentication HTTP behavior. There is no Measurement or
+Ingestion protobuf change.
+
 ## Design principles
 
 Protocol development follows a few core principles:

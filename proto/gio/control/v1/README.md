@@ -6,10 +6,21 @@ not define an RPC service, gRPC, or a control-plane implementation.
 
 Before its first network attempt, a probe generates and durably persists a
 non-secret `registration_id`, a control bearer token, and an ingestion bearer
-token. The recommended GIO token profile is 32 CSPRNG bytes encoded as
-unpadded base64url (43 ASCII characters). The three credentials MUST be
-distinct. Consumers treat bearer values as opaque; the profile is a generation
-profile, not a token meaning or verification algorithm.
+token. For both runtime token fields, Registration v1 normatively requires 32
+bytes generated from a CSPRNG, encoded as RFC 4648 URL-safe base64 without
+padding: exactly 43 ASCII characters from `[A-Za-z0-9_-]`. This is the
+Registration v1 credential generation/input profile, not a long-term bearer
+semantic format. The enrollment credential, control bearer credential, and
+ingestion bearer credential MUST be pairwise distinct; `registration_id` is not
+a credential.
+
+After registration, collectors, control-plane authenticated endpoints, and
+probe transports MUST treat bearer values as opaque strings. They MUST NOT
+decode a token to obtain `probe_id`, interpret token fields, require JWT claims,
+or derive identity from token structure. Identity comes from a protected
+credential verifier bound to `probe_id`; the Registration profile does not freeze
+SHA-256 or any other verifier algorithm. The reference harness uses SHA-256
+only as a test model.
 
 The probe submits `RegisterProbeRequest` using a one-time enrollment credential.
 The control plane authenticates that credential, validates the request, assigns
@@ -22,6 +33,12 @@ response is valid only after strict protobuf/content-type/correlation checks.
 bytes, stable across retries, and not trimmed, case-folded, normalized, or
 aliased. `probe_id` is always chosen by the control plane and is the canonical
 identity used by Measurement and Ingestion Authentication v1.
+
+The observable processing order is: authenticate enrollment, parse/decode the
+request, validate all known Registration semantics (including pairwise
+credential separation), then apply immutable conflict/idempotency rules. Thus a
+valid enrollment with an occupied registration ID but malformed credentials is
+`400`, while a semantically valid immutable conflict is `409`.
 
 Registration is immutable in v1. An exact retry (same enrollment credential,
 registration ID, and both token values) returns `200` with the same `probe_id`,
@@ -39,4 +56,6 @@ are deferred; **Task Lease v1 is the next control-plane protocol**.
 
 Unknown protobuf fields do not invalidate otherwise valid known registration
 semantics. Registration is semantic/idempotent state, rather than exact-payload
-storage like Measurement Ingestion.
+storage like Measurement Ingestion. `registration_id` is untrusted text; any
+implementation that logs it MUST use structured logging or escaping and MUST
+NOT interpolate raw control characters into an unstructured log line.
