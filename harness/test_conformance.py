@@ -385,13 +385,14 @@ def main():
                                     "gio.control.v1.CompleteTaskLeaseRequest")
         complete_response = BufCodec(arguments.buf, Path(directory),
                                      "gio.control.v1.CompleteTaskLeaseResponse")
-        acquire_cases, completion_cases, task_lease_cases = run_task_lease_tests(
+        acquire_cases, completion_cases, mapping_cases, task_lease_cases = run_task_lease_tests(
             acquire_request, acquire_response, complete_request, complete_response
         )
     print(f"Conformance passed: {len(valid)} valid, {len(invalid)} semantic-invalid fixtures; "
           f"{wire_cases} Measurement wire cases; {ingestion_cases} ingestion cases; "
           f"{authentication_cases} authentication cases; {registration_cases} registration cases; "
-          f"{task_lease_cases} task lease cases ({acquire_cases} acquire, {completion_cases} completion)")
+          f"{task_lease_cases} task lease cases ({acquire_cases} acquire, "
+          f"{completion_cases} completion, {mapping_cases} mapping)")
     return 0
 
 

@@ -12,9 +12,6 @@ STORED = "INGESTION_STATUS_STORED"
 ALREADY_STORED = "INGESTION_STATUS_ALREADY_STORED"
 RETRY = "INGESTION_STATUS_RETRY"
 REJECTED = "INGESTION_STATUS_REJECTED"
-KNOWN_TRANSPORTS = {
-    "DNS_TRANSPORT_UDP", "DNS_TRANSPORT_TCP", "DNS_TRANSPORT_TLS", "DNS_TRANSPORT_HTTPS"
-}
 TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z\Z")
 
 
@@ -48,18 +45,25 @@ def _task(task):
     if kind == "dns":
         _nonempty(value.get("queryName"), "dns.queryName")
         _require(not value["queryName"].endswith("."), "dns.queryName must not trail dot")
-        _require(value.get("queryType", 0) in range(1, 65536), "dns.queryType is invalid")
+        _require(value.get("queryType", 0) in (1, 28), "dns.queryType must be A or AAAA")
         if "transport" in value:
-            _require(value["transport"] in KNOWN_TRANSPORTS, "dns.transport is unknown")
+            _require(value["transport"] == "DNS_TRANSPORT_UDP", "dns.transport must be UDP")
         if "resolver" in value:
             _endpoint(value["resolver"], "dns.resolver")
     elif kind == "http":
         url = value.get("url")
         _nonempty(url, "http.url")
-        parsed = urlsplit(url)
-        _require(parsed.scheme.lower() in {"http", "https"} and parsed.netloc and parsed.hostname,
-                 "http.url must be an absolute HTTP(S) URL")
-        _require(not any(char.isspace() for char in url), "http.url must not contain whitespace")
+        try:
+            parsed = urlsplit(url)
+            port = parsed.port
+            valid = (parsed.scheme.lower() in {"http", "https"} and parsed.netloc
+                     and parsed.hostname and (port is None or port > 0)
+                     and not any(char.isspace() for char in url)
+                     and not parsed.netloc.endswith(":")
+                     and "@" not in parsed.netloc)
+        except ValueError:
+            valid = False
+        _require(valid, "http.url must be an absolute credential-free HTTP(S) URL")
     elif kind == "tcp":
         _endpoint(value.get("remoteEndpoint"), "tcp.remoteEndpoint")
     else:
@@ -111,13 +115,72 @@ def validate_completion_response(response, request):
     return response
 
 
+def validate_measurement_for_task(task, measurement):
+    """Validate the Task Lease producer mapping without duplicating Measurement validation."""
+    _task(task)
+    _require(isinstance(measurement, dict), "measurement must be an object")
+    _nonempty(measurement.get("measurementId"), "measurement.measurementId")
+    kind, spec = next(iter(task.items()))
+    expected_kind = {
+        "dns": "MEASUREMENT_KIND_DNS",
+        "http": "MEASUREMENT_KIND_HTTP",
+        "tcp": "MEASUREMENT_KIND_TCP_CONNECT",
+        "tls": "MEASUREMENT_KIND_TLS_HANDSHAKE",
+    }[kind]
+    _require(measurement.get("kind") == expected_kind, "measurement.kind does not match task")
+    target = measurement.get("target")
+    _require(isinstance(target, dict), "measurement.target is required")
+    if kind == "dns":
+        _require(target.get("hostname") == spec["queryName"], "DNS target hostname does not match task")
+        result = measurement.get("dnsResult")
+        if result is not None:
+            _require(result.get("queryName") == spec["queryName"], "DNS result query name does not match task")
+            _require(result.get("queryType") == spec["queryType"], "DNS result QTYPE does not match task")
+            _require(result.get("transport", "DNS_TRANSPORT_UDP") == "DNS_TRANSPORT_UDP",
+                     "DNS result transport must be UDP")
+            if "resolver" in spec:
+                _require(result.get("resolver") == spec["resolver"], "DNS result resolver does not match task")
+    elif kind == "http":
+        _require(target.get("url") == spec["url"], "HTTP target URL does not match task")
+        result = measurement.get("httpResult")
+        if result is not None:
+            _require(result.get("method") == "GET", "HTTP result method must be GET")
+            _require(result.get("finalUrl") == spec["url"], "HTTP result URL does not match task")
+    elif kind == "tcp":
+        endpoint = spec["remoteEndpoint"]
+        _require(target.get("ipAddress") == endpoint.get("ipAddress")
+                 and target.get("port") == endpoint.get("port"),
+                 "TCP target endpoint does not match task")
+        result = measurement.get("tcpConnectResult")
+        if result is not None:
+            _require(result.get("remoteEndpoint") == endpoint, "TCP result endpoint does not match task")
+    else:
+        endpoint = spec["remoteEndpoint"]
+        _require(target.get("ipAddress") == endpoint.get("ipAddress")
+                 and target.get("port") == endpoint.get("port"),
+                 "TLS target endpoint does not match task")
+        if "serverName" in spec:
+            _require(target.get("hostname") == spec["serverName"], "TLS target server name does not match task")
+        result = measurement.get("tlsHandshakeResult")
+        if result is not None:
+            _require(result.get("remoteEndpoint") == endpoint, "TLS result endpoint does not match task")
+            if "serverName" in spec:
+                _require(result.get("serverName") == spec["serverName"],
+                         "TLS result server name does not match task")
+    if measurement.get("status") == "EXECUTION_STATUS_FAILED":
+        _require(not any(field in measurement for field in
+                         ("dnsResult", "httpResult", "tcpConnectResult", "tlsHandshakeResult")),
+                 "FAILED measurement must not contain a typed result")
+    return measurement
+
+
 def completion_allowed(ingestion_status):
     return ingestion_status in {STORED, ALREADY_STORED}
 
 
-def classify_client_outcome(status, response_valid=False):
+def classify_client_outcome(status, response_valid=False, content_type="application/x-protobuf"):
     """Complete only a valid correlated 200; all other outcomes are closed-world."""
-    if status == 200 and response_valid:
+    if status == 200 and response_valid and content_type == "application/x-protobuf":
         return "complete"
     if isinstance(status, int) and (200 <= status <= 299 or status == 429
                                     or 500 <= status <= 599):
@@ -240,7 +303,36 @@ def run_task_lease_tests(acquire_request_codec, acquire_response_codec,
     for task_id, task in tasks.items():
         model.add_task(task_id, task)
     identity = ExecutionIdentity()
-    acquire_cases = completion_cases = 0
+    acquire_cases = completion_cases = mapping_cases = 0
+
+    def expect_invalid(task):
+        try:
+            _task(task)
+        except (ValueError, AttributeError):
+            return
+        raise AssertionError("invalid task was accepted")
+
+    # Task dispatch is deliberately narrower than the full Measurement DNS vocabulary.
+    _task({"dns": {"queryName": "example.com", "queryType": 1}})
+    _task({"dns": {"queryName": "example.com", "queryType": 28,
+                    "transport": "DNS_TRANSPORT_UDP"}})
+    for query_type in (0, 15, 16, 65535):
+        expect_invalid({"dns": {"queryName": "example.com", "queryType": query_type}})
+    for transport in ("DNS_TRANSPORT_TCP", "DNS_TRANSPORT_TLS", "DNS_TRANSPORT_HTTPS"):
+        expect_invalid({"dns": {"queryName": "example.com", "queryType": 1, "transport": transport}})
+    _task({"dns": {"queryName": "example.com", "queryType": 1, "resolver": endpoint}})
+    expect_invalid({"dns": {"queryName": "example.com", "queryType": 1,
+                              "resolver": {"ipAddress": {"address": "AQI="}, "port": 53}}})
+    acquire_cases += 2 + 4 + 3 + 2
+
+    # HTTP task syntax follows the probe's absolute, credential-free URL profile.
+    _task({"http": {"url": "https://example.com/"}})
+    for url in ("https://user@example.com/", "https://user:password@example.com/",
+                "https://@example.com/",
+                "https://example.com:0/", "https://example.com:65536/",
+                "https://example.com:not-a-port/", "https://example.com:/"):
+        expect_invalid({"http": {"url": url}})
+    acquire_cases += 1 + 7
 
     def acquire(probe, **kwargs):
         acquire_request_codec.round_trip({})
@@ -278,7 +370,59 @@ def run_task_lease_tests(acquire_request_codec, acquire_response_codec,
         acquire_cases += 1
     assert classify_client_outcome("unknown") == "operator_intervention"
     assert classify_client_outcome(200, response_valid=False) == "retry_exact"
+    assert classify_client_outcome(200, response_valid=True, content_type="text/plain") == "retry_exact"
+    assert classify_client_outcome(200, response_valid=False, content_type="application/x-protobuf") == "retry_exact"
     acquire_cases += 2
+
+    # Normative Task -> Measurement producer mapping. This is intentionally a
+    # focused mapping check; full Measurement semantics remain in test_conformance.
+    mapping_measurements = {
+        "dns": {"measurementId": "m-dns", "kind": "MEASUREMENT_KIND_DNS",
+                "target": {"hostname": "example.com"},
+                "dnsResult": {"queryName": "example.com", "queryType": 1,
+                               "transport": "DNS_TRANSPORT_UDP", "resolver": endpoint}},
+        "http": {"measurementId": "m-http", "kind": "MEASUREMENT_KIND_HTTP",
+                  "target": {"url": "https://example.com/"},
+                  "httpResult": {"method": "GET", "finalUrl": "https://example.com/"}},
+        "tcp": {"measurementId": "m-tcp", "kind": "MEASUREMENT_KIND_TCP_CONNECT",
+                "target": {"ipAddress": endpoint["ipAddress"], "port": 443},
+                "tcpConnectResult": {"remoteEndpoint": endpoint}},
+        "tls": {"measurementId": "m-tls", "kind": "MEASUREMENT_KIND_TLS_HANDSHAKE",
+                "target": {"hostname": "example.com", "ipAddress": endpoint["ipAddress"], "port": 443},
+                "tlsHandshakeResult": {"remoteEndpoint": endpoint, "serverName": "example.com"}},
+    }
+    for task_id, task in tasks.items():
+        kind = next(iter(task))
+        validate_measurement_for_task(task, mapping_measurements[kind])
+        mapping_cases += 1
+    failed_targets = {
+        "dns": {"hostname": "example.com"},
+        "http": {"url": "https://example.com/"},
+        "tcp": {"ipAddress": endpoint["ipAddress"], "port": 443},
+        "tls": {"hostname": "example.com", "ipAddress": endpoint["ipAddress"], "port": 443},
+    }
+    for task in tasks.values():
+        kind = next(iter(task))
+        failed = {"measurementId": f"m-failed-{kind}",
+                  "kind": mapping_measurements[kind]["kind"],
+                  "target": failed_targets[kind], "status": "EXECUTION_STATUS_FAILED"}
+        validate_measurement_for_task(task, failed)
+        mapping_cases += 1
+    for bad in (
+        (tasks["task-dns"], dict(mapping_measurements["dns"], target={"hostname": "other.example"})),
+        (tasks["task-dns"], dict(mapping_measurements["dns"], dnsResult={"queryName": "other.example", "queryType": 1, "transport": "DNS_TRANSPORT_UDP", "resolver": endpoint})),
+        (tasks["task-dns"], dict(mapping_measurements["dns"], dnsResult={"queryName": "example.com", "queryType": 28, "transport": "DNS_TRANSPORT_UDP", "resolver": endpoint})),
+        (tasks["task-dns"], dict(mapping_measurements["http"], kind="MEASUREMENT_KIND_HTTP")),
+        (tasks["task-http"], dict(mapping_measurements["http"], httpResult={"method": "POST", "finalUrl": "https://example.com/"})),
+        (tasks["task-tcp"], dict(mapping_measurements["tcp"], target={"ipAddress": endpoint["ipAddress"], "port": 444})),
+        (tasks["task-tls"], dict(mapping_measurements["tls"], tlsHandshakeResult={"remoteEndpoint": endpoint, "serverName": "other.example"})),
+    ):
+        try:
+            validate_measurement_for_task(*bad)
+        except ValueError:
+            mapping_cases += 1
+        else:
+            raise AssertionError("invalid task-to-measurement mapping was accepted")
 
     status, first = acquire("probe-a")
     assert status == 200 and "lease" in first
@@ -335,6 +479,16 @@ def run_task_lease_tests(acquire_request_codec, acquire_response_codec,
     validate_completion_response(completed, completion_request)
     assert model.leases[lease["leaseId"]]["state"] == "finalized"
     completion_cases += 1
+    # A completion is complete only with the canonical media type and exact echo.
+    assert classify_client_outcome(200, response_valid=True,
+                                   content_type="application/x-protobuf") == "complete"
+    for content_type in ("text/plain", "application/json", ""):
+        assert classify_client_outcome(200, response_valid=True,
+                                       content_type=content_type) == "retry_exact"
+        completion_cases += 1
+    for _ in ("task", "lease", "attempt", "measurement"):
+        assert classify_client_outcome(200, response_valid=False) == "retry_exact"
+        completion_cases += 1
     # Durable finalization precedes response; exact retry is idempotent.
     status, exact = complete("probe-a", {"taskId": lease["taskId"], "leaseId": lease["leaseId"],
                                           "attempt": lease["attempt"], "measurementId": measurement_id})
@@ -413,4 +567,4 @@ def run_task_lease_tests(acquire_request_codec, acquire_response_codec,
     validate_acquire_response(decoded)
     acquire_cases += 1
 
-    return acquire_cases, completion_cases, acquire_cases + completion_cases
+    return acquire_cases, completion_cases, mapping_cases, acquire_cases + completion_cases + mapping_cases

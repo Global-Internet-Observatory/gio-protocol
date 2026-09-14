@@ -47,9 +47,13 @@ An authenticated malformed request returns `400`.
 
 The probe MUST complete only after Ingestion v1 acknowledges the corresponding
 Measurement as `STORED` or `ALREADY_STORED`. A valid new completion, or an exact
-retry of an already finalized completion, returns `200` with a correlated
+retry of an already finalized completion, returns `200` with
+`Content-Type: application/x-protobuf` and a decodable, exactly correlated
 `CompleteTaskLeaseResponse`. The server returns success only after durable
-finalization of the lease and measurement ID binding.
+finalization of the lease and measurement ID binding. A `200` with another
+media type, malformed protobuf, or any task/lease/attempt/measurement echo
+mismatch is non-completing and MUST retry the exact persisted request; the
+server may already have finalized the lease.
 
 An unknown lease or a lease owned by another probe both return `404`, revealing
 no lease existence distinction. An expired lease, task/attempt mismatch, or a
@@ -60,10 +64,11 @@ No completion error envelope is defined.
 
 ## Security and lifecycle boundaries
 
-Task payloads MUST NOT contain secrets. A probe retains local execution intent
-through every non-success outcome and MUST NOT silently invent a new
-measurement ID for the same lease. Lease expiry provides recovery after a
-crash or disappearance; v1 defines no renewal, cancellation, rejection, or
-heartbeat-coupled extension. The protocol is at-least-once task execution, so
-duplicate attempts after expiry are expected and must be correlated by their
-distinct lease and measurement IDs.
+Task Lease v1 defines no secret-bearing task fields. URL userinfo is forbidden;
+task authors MUST NOT place secrets in URL path, query, or fragment. A probe
+retains local execution intent through every non-success outcome and MUST NOT
+silently invent a new measurement ID for the same lease. Lease expiry provides
+recovery after a crash or disappearance; v1 defines no renewal, cancellation,
+rejection, or heartbeat-coupled extension. The protocol is at-least-once task
+execution, so duplicate attempts after expiry are expected and must be
+correlated by their distinct lease and measurement IDs.

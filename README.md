@@ -141,7 +141,10 @@ active lease, and each lease represents exactly one Measurement execution. A
 durable lease is returned again after a lost acquire response; expiry permits a
 new at-least-once attempt. Completion is allowed only after `STORED` or
 `ALREADY_STORED` ingestion acknowledgement. The protocol does not define a
-scheduler, renewal, heartbeat, cancellation, capabilities, or runtime.
+scheduler, renewal, heartbeat, cancellation, capabilities, or runtime. Its
+normative task-to-Measurement mapping preserves the exact DNS name/QTYPE, HTTP
+URL and GET method, TCP/TLS endpoint, and optional TLS server name; it does not
+add lease fields to the Measurement wire.
 
 ## Design principles
 

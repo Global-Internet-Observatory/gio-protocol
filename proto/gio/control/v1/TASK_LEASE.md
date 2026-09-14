@@ -22,13 +22,23 @@ expires, the task may be assigned again with the same `task_id`, a new
 `lease_id`, and `attempt + 1`. Execution is therefore at-least-once, never
 exactly-once.
 
-`MeasurementTask` supports only the four existing measurement families:
+`MeasurementTask` supports only the four existing measurement families. The
+task-to-Measurement mapping below is normative; a task author cannot reinterpret
+the target or result fields.
 
-- `DnsTask`: non-empty query name without a trailing dot, QTYPE 1–65535, and
-  optional existing `gio.measurement.v1.DnsTransport` and
-  `gio.common.v1.NetworkEndpoint` resolver.
-- `HttpTask`: one absolute HTTP or HTTPS URL and an implicit GET. It has no
-  request body, cookies, proxy, redirect policy, or credential injection.
+- `DnsTask`: non-empty query name without a trailing dot, QTYPE `1` (A) or
+  `28` (AAAA), and UDP only. An absent transport means UDP; the explicit
+  `DNS_TRANSPORT_UDP` value is also valid. TCP, TLS, and HTTPS transports are
+  unsupported by Task Lease v1 even though `DnsResult` has a wider observation
+  vocabulary. An absent resolver means the probe/system configured UDP
+  resolver; a present resolver is the exact UDP endpoint to contact.
+- `HttpTask`: one absolute, credential-free HTTP or HTTPS URL with an authority
+  and an implicit GET. URL userinfo is forbidden; a specified port must parse
+  and be in the inclusive range 1–65535. It has no request body, cookies,
+  proxy, redirect policy, or credential injection. The probe uses no implicit
+  proxy, follows no redirects, and observes a redirect response itself as the
+  final response. Operators must not place secrets in URL path, query, or
+  fragment.
 - `TcpTask`: one existing `gio.common.v1.NetworkEndpoint` remote endpoint,
   with port 1–65535.
 - `TlsTask`: one existing `gio.common.v1.NetworkEndpoint` remote endpoint and
@@ -55,8 +65,39 @@ lease -> execute -> persist Measurement -> authenticated ingestion ACK
       -> complete lease
 ```
 
-The task payload contains no authorization headers, bearer credentials,
-cookies, proxy passwords, or private keys. Scheduling policy (FIFO, priority,
+## Task-to-Measurement mapping
+
+For every execution, `Measurement.measurement_id` is the probe's durable local
+measurement ID bound to the lease. `Measurement.probe.probe_id` is the
+authenticated control principal. The task intent remains in the Measurement
+even when execution fails; a FAILED Measurement has the matching `kind` and
+`target` and no typed result.
+
+- A `DnsTask` produces `kind = MEASUREMENT_KIND_DNS` and
+  `target.hostname = query_name` exactly. A present `DnsResult` repeats the
+  exact query name and QTYPE, uses UDP, and uses the requested resolver when one
+  was supplied. When the task omitted a resolver, a usable result may report
+  the actual configured resolver if it is observable.
+- An `HttpTask` produces `kind = MEASUREMENT_KIND_HTTP` and
+  `target.url = url` exactly. A present `HttpResult` uses method `GET` and has
+  `final_url` equal to the requested URL because redirects are not followed.
+- A `TcpTask` produces `kind = MEASUREMENT_KIND_TCP_CONNECT` with target IP
+  address and port copied exactly from `remote_endpoint`. A present
+  `TcpConnectResult.remote_endpoint` equals that endpoint.
+- A `TlsTask` produces `kind = MEASUREMENT_KIND_TLS_HANDSHAKE` with target IP
+  address and port copied exactly from `remote_endpoint`. If `server_name` is
+  present, `target.hostname` is that exact value. A present
+  `TlsHandshakeResult` repeats the endpoint and, when supplied, the exact
+  server name.
+
+The mapping does not add `task_id`, `lease_id`, or `attempt` to the Measurement
+wire. Those values remain in durable control-plane lease state and the
+completion binding.
+
+Task Lease v1 defines no secret-bearing fields: it contains no authorization
+headers, bearer credentials, cookies, proxy passwords, or private keys. URL
+userinfo is syntactically forbidden; task authors also MUST NOT place secrets
+in URL path, query, or fragment. Scheduling policy (FIFO, priority,
 fairness, region, ASN, and capacity) and capability advertisement are outside
 the protocol. Remote attestation, hardware identity, malware resistance, and
 exactly-once execution are also outside v1.

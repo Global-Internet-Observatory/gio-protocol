@@ -47,12 +47,15 @@ message MeasurementTask {
 // A DNS Internet-class query task.
 message DnsTask {
   string query_name = 1;
+  // Task Lease v1 permits only QTYPE 1 (A) or 28 (AAAA).
   uint32 query_type = 2;
+  // Absent means UDP; the only supported explicit value is UDP.
   optional gio.measurement.v1.DnsTransport transport = 3;
+  // Absent means the probe/system configured UDP resolver.
   optional gio.common.v1.NetworkEndpoint resolver = 4;
 }
 
-// An HTTP GET task. The URL must be absolute and use HTTP or HTTPS.
+// An HTTP GET task. The URL must be absolute, credential-free, and use HTTP or HTTPS.
 message HttpTask {
   string url = 1;
 }

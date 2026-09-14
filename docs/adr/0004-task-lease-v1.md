@@ -27,8 +27,12 @@ capability advertisement are deferred.
 
 The four task kinds reuse `gio.common.v1.NetworkEndpoint` and
 `gio.measurement.v1.DnsTransport`; no duplicate endpoint or target primitive is
-introduced. HTTP tasks are GET-only. Per-task timeout is absent because lease
-expiry and probe execution bounds are different concepts.
+introduced. DNS dispatch is intentionally limited to A/AAAA over UDP (an
+absent transport means UDP), even though `DnsResult` can describe additional
+transport observations. HTTP tasks are GET-only, credential-free, require a
+valid HTTP(S) authority and port, use no implicit proxy, and do not follow
+redirects. Per-task timeout is absent because lease expiry and probe execution
+bounds are different concepts.
 
 Before execution, the probe durably binds one locally generated
 `measurement_id` to the lease ID. It must persist and ingest the Measurement
@@ -36,6 +40,13 @@ first, accepting only `STORED` or `ALREADY_STORED`, before calling
 `POST /v1/task-leases:complete`. FAILED Measurements are valid executions and
 are completed after successful ingestion. `REJECTED` or transient ingestion
 outcomes do not complete the lease.
+
+Task execution has a normative mapping to Measurement intent: DNS copies the
+exact query name and QTYPE into the DNS kind/target, HTTP copies the exact URL
+and uses GET, TCP copies the endpoint into the TCP_CONNECT target/result, and
+TLS copies the endpoint plus optional exact server name into the
+TLS_HANDSHAKE target/result. A FAILED Measurement retains the matching kind and
+target but has no typed result. The Measurement wire does not gain lease fields.
 
 Completion is an immutable durable transition. An exact retry returns the same
 correlated `200` response; a changed measurement ID, stale lease, task mismatch,
@@ -46,7 +57,8 @@ without scheduling or lease-state disclosure.
 
 ## Consequences and deferred work
 
-Task payloads contain no secrets and no task-side authorization headers. The
+Task Lease v1 defines no secret-bearing fields and forbids URL userinfo; task
+authors must not place secrets in URL path, query, or fragment. The
 contract does not provide exactly-once execution, attestation, hardware
 identity, malware resistance, distributed scheduler consensus, renewal,
 cancellation, heartbeat extension, admin issuance, or runtime implementation.

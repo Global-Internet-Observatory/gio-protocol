@@ -63,10 +63,11 @@ Task Lease conformance uses a pure durable reference model rather than an HTTP
 server. It exercises authenticated pull leasing, one active lease per probe and
 task, lost-response recovery, expiry and incremented attempts, four known task
 kinds using shared protocol primitives, durable lease-to-Measurement identity,
-ingestion-before-completion gating, immutable completion retries, and the
-`401`/`400`/`404`/`409` boundaries. Task state is semantic and idempotent; unknown
-protobuf fields alone are accepted, while unknown task kinds or invalid known
-fields are not executable by a v1 probe.
+ingestion-before-completion gating, immutable completion retries, task-to-
+Measurement mapping, completion media-type correlation, and the `401`/`400`/
+`404`/`409` boundaries. Task state is semantic and idempotent; unknown protobuf
+fields alone are accepted, while unknown task kinds or invalid known fields are
+not executable by a v1 probe.
 
 Every fixture encodes to binary, decodes, re-encodes, and compares decoded meaning.
 The invalid fixture's decode/round-trip is outside the expected-error handler:
