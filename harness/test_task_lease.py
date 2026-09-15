@@ -70,6 +70,12 @@ def _task(task):
         _endpoint(value.get("remoteEndpoint"), "tls.remoteEndpoint")
         if "serverName" in value:
             _nonempty(value["serverName"], "tls.serverName")
+            # A trailing root dot is refused only because the same string is carried
+            # into Measurement.target.hostname, where Measurement v1 forbids it.
+            # Task validity deliberately says nothing about whether any one TLS
+            # stack can use the value as SNI; that is an execution concern.
+            _require(not value["serverName"].endswith("."),
+                     "tls.serverName must not trail dot")
 
 
 def _lease(value):
@@ -361,7 +367,7 @@ def run_task_lease_tests(acquire_request_codec, acquire_response_codec,
             _task(task)
         except (ValueError, AttributeError):
             return
-        raise AssertionError("invalid task was accepted")
+        raise AssertionError(f"invalid task was accepted: {task}")
 
     # Task dispatch is deliberately narrower than the full Measurement DNS vocabulary.
     _task({"dns": {"queryName": "example.com", "queryType": 1}})
@@ -384,6 +390,26 @@ def run_task_lease_tests(acquire_request_codec, acquire_response_codec,
                 "https://example.com:not-a-port/", "https://example.com:/"):
         expect_invalid({"http": {"url": url}})
     acquire_cases += 1 + 7
+
+    # A TLS task server name is carried verbatim into Measurement.target.hostname,
+    # and Measurement v1 forbids a trailing root dot there. Task validation must
+    # therefore refuse one, while staying silent about whether a name is usable by
+    # any one TLS stack.
+    tls_profile = [
+        ({"serverName": "example.com"}, True),
+        ({"serverName": "192.0.2.1"}, True),
+        ({"serverName": "exa mple"}, True),
+        ({}, True),
+        ({"serverName": ""}, False),
+        ({"serverName": "example.com."}, False),
+    ]
+    for fields, accepted in tls_profile:
+        task = {"tls": {"remoteEndpoint": endpoint, **fields}}
+        if accepted:
+            _task(task)
+        else:
+            expect_invalid(task)
+    acquire_cases += len(tls_profile)
 
     def acquire(probe, **kwargs):
         acquire_request_codec.round_trip({})

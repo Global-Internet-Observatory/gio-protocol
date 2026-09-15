@@ -68,7 +68,12 @@ exact query name and QTYPE into the DNS kind/target, HTTP copies the exact URL
 and uses GET, TCP copies the endpoint into the TCP_CONNECT target/result, and
 TLS copies the endpoint plus optional exact server name into the
 TLS_HANDSHAKE target/result. A FAILED Measurement retains the matching kind and
-target but has no typed result. The Measurement wire does not gain lease fields.
+target but has no typed result. Because the TLS mapping is exact, a `TlsTask`
+`server_name` that Measurement v1 could not carry — one ending in a trailing
+root dot — is refused at task validation rather than producing a task with no
+valid Measurement form. No other spelling is asserted there; a value a
+concrete TLS stack cannot use as SNI fails at execution. The Measurement wire
+does not gain lease fields.
 
 Completion is an immutable durable transition. An exact retry returns the same
 correlated `200` response; a changed measurement ID, stale lease, task mismatch,

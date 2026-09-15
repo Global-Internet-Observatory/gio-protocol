@@ -72,6 +72,12 @@ message TcpTask {
 // A TLS handshake task over the remote endpoint, with optional SNI.
 message TlsTask {
   gio.common.v1.NetworkEndpoint remote_endpoint = 1;
+  // Optional SNI server name. When present it must be non-empty and must not
+  // end with a trailing root dot. That single restriction exists because the
+  // exact value is carried into Measurement.target.hostname, which
+  // Measurement v1 forbids from trailing a root dot; without it a task would
+  // be valid here and impossible to map there. Whether a concrete TLS stack
+  // can use the value as SNI is an execution concern, not task validity.
   optional string server_name = 2;
 }
 

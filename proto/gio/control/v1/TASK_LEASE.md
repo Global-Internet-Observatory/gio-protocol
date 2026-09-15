@@ -46,7 +46,14 @@ the target or result fields.
 - `TcpTask`: one existing `gio.common.v1.NetworkEndpoint` remote endpoint,
   with port 1–65535.
 - `TlsTask`: one existing `gio.common.v1.NetworkEndpoint` remote endpoint and
-  optional non-empty SNI `server_name`.
+  optional SNI `server_name`. When present it is non-empty and does not end
+  with a trailing root dot. That restriction is not a statement about DNS:
+  `server_name` is carried verbatim into `Measurement.target.hostname`, and
+  Measurement v1 forbids a trailing root dot there, so accepting one here
+  would admit a task that has no valid Measurement form. Nothing else about
+  the spelling is asserted — whether a concrete TLS stack can use the value
+  as SNI is decided at execution time, where an unusable value is a FAILED
+  Measurement rather than a malformed lease.
 
 No duplicate endpoint, target, IP, or transport primitives are introduced.
 Task timeout configuration is intentionally absent and remains a bounded probe
@@ -130,7 +137,9 @@ even when execution fails; a FAILED Measurement has the matching `kind` and
   `TcpConnectResult.remote_endpoint` equals that endpoint.
 - A `TlsTask` produces `kind = MEASUREMENT_KIND_TLS_HANDSHAKE` with target IP
   address and port copied exactly from `remote_endpoint`. If `server_name` is
-  present, `target.hostname` is that exact value. A present
+  present, `target.hostname` is that exact value — which is why the trailing
+  root dot is refused at validation: this mapping is exact, and Measurement v1
+  does not permit `target.hostname` to trail a dot. A present
   `TlsHandshakeResult` repeats the endpoint and, when supplied, the exact
   server name.
 
