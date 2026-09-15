@@ -148,7 +148,11 @@ followed by independent trusted verification of durable Measurement ownership.
 The protocol does not define a scheduler, renewal, heartbeat, cancellation,
 capabilities, or runtime. Its normative task-to-Measurement mapping preserves
 the exact DNS name/QTYPE, HTTP URL and GET method, TCP/TLS endpoint, and
-optional TLS server name; it does not add lease fields to the Measurement wire.
+optional TLS server name, so a TLS `server_name` ending in a trailing root dot
+is refused at task validation rather than becoming a task with no valid
+Measurement form. Any other spelling remains task-valid; a value a concrete
+TLS stack cannot use as SNI fails at execution. The mapping does not add lease
+fields to the Measurement wire.
 
 ## Design principles
 
